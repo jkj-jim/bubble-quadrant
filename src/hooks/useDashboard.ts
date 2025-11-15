@@ -1,0 +1,85 @@
+/**
+ * useDashboard.ts - 仪表盘状态管理和类型定义
+ *
+ * 功能说明：
+ * 1. 定义仪表盘插件的核心类型和接口
+ * 2. 提供仪表盘状态管理hook
+ * 3. 聚合导出所有相关的hooks和类型定义
+ *
+ * 类型定义：
+ * - DashboardState: 仪表盘状态（create/config/view/fullscreen）
+ * - BubbleChartConfig: 气泡图配置接口
+ * - TableInfo: 工作表信息
+ * - FieldInfo: 字段信息
+ * - DataItem: 数据项
+ *
+ * 导出内容：
+ * - useDashboard: 获取仪表盘当前状态
+ * - useTables: 获取工作表列表
+ * - useFields: 获取字段列表
+ * - useData: 获取和处理图表数据
+ */
+
+// import { useEffect, useRef } from 'react'
+import { dashboard } from '@lark-base-open/js-sdk'
+
+/**
+ * DashboardState - 仪表盘状态类型
+ * 四种状态：
+ * - create: 首次创建
+ * - config: 配置状态
+ * - view: 查看状态
+ * - fullscreen: 全屏状态
+ */
+export type DashboardState = 'create' | 'config' | 'view' | 'fullscreen'
+
+/**
+ * BubbleChartConfig - 气泡图配置接口
+ * 功能：定义气泡图的配置项，包括数据源和字段选择
+ */
+export interface BubbleChartConfig {
+  [key: string]: string | undefined;
+  dataSource?: string    // 数据源表ID
+  nameField?: string     // 气泡名称字段ID
+  xField?: string        // 横轴字段ID
+  yField?: string        // 纵轴字段ID
+  sizeField?: string     // 气泡大小字段ID
+}
+
+/**
+ * TableInfo - 工作表信息
+ */
+export interface TableInfo {
+  id: string
+  name: string
+}
+
+/**
+ * FieldInfo - 字段信息
+ */
+export interface FieldInfo {
+  id: string
+  name: string
+  type: any
+}
+
+/**
+ * useDashboard - 仪表盘状态hook
+ * 功能：获取当前仪表盘状态（create/config/view/fullscreen）
+ */
+export const useDashboard = () => {
+  const state = dashboard.state.toLowerCase() as DashboardState
+
+  // 关键优化：将 create 状态视为 config 状态处理
+  // 原因：用户点击"添加插件"后，应该直接进入配置界面，而不是显示欢迎页面
+  // 参考官方示例的做法：https://github.com/larksuite/.../dashboard-milestone-main
+  const isConfig = state === 'config' || state === 'create'
+
+  return { state, isConfig }
+}
+
+// 聚合导出其他hooks
+export { useTables } from './useTables'
+export { useFields } from './useFields'
+export { useData3 as useData, type DataItem } from './useData3'
+

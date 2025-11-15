@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "version": "1.0.0",
+  "type": "dashboard",
+  "i18n": {
+    "zh": {
+      "name": "气泡图",
+      "description": "使用气泡图可视化多维表格的数据关系"
+    },
+    "en": {
+      "name": "Bubble Chart",
+      "description": "Visualize multi-dimensional table data relationships using bubble charts"
+    },
+    "ja": {
+      "name": "バブルチャート",
+      "description": "バブルチャートでベースデータの関係性を可視化します"
+    }
+  },
+  "api": "0.4.0-alpha.1"
+}
