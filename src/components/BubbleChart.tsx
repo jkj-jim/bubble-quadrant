@@ -31,6 +31,7 @@ export interface BubbleChartProps {
   data: DataItem[]          // 图表数据
   xFieldName?: string       // 横轴字段名（用于显示）
   yFieldName?: string       // 纵轴字段名（用于显示）
+  sizeFieldName?: string    // 大小字段名（用于显示）
   loading?: boolean         // 加载状态
 }
 
@@ -42,6 +43,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   data,
   xFieldName,
   yFieldName,
+  sizeFieldName,
   loading
 }) => {
   // chartRef: ECharts容器DOM元素引用
@@ -80,17 +82,17 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     const option: EChartsOption = {
       backgroundColor: 'transparent',
       grid: {
-        left: '10%',
-        right: '10%',
-        bottom: '10%',
-        top: '10%',
+        left: '20px',
+        right: '60px',
+        bottom: '30px',
+        top: '40px',
         containLabel: true
       },
       xAxis: {
         type: 'value',
         name: xFieldName || '横轴',
-        nameLocation: 'middle',
-        nameGap: 30,
+        nameLocation: 'end',  // 将横坐标轴标题放在右侧
+        nameGap: 10,  // 调整标题与轴线的距离
         splitLine: {
           lineStyle: {
             color: '#f0f0f0'
@@ -100,24 +102,24 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       yAxis: {
         type: 'value',
         name: yFieldName || '纵轴',
-        nameLocation: 'middle',
-        nameGap: 40,
+        nameLocation: 'end',  // 将纵坐标轴标题放在上方
+        nameGap: 10,  // 调整标题与轴线的距离
         splitLine: {
           lineStyle: {
             color: '#f0f0f0'
           }
         }
       },
-      tooltip: {
+      tooltip: {//用于调整 hover 时的提示框
         trigger: 'item',
         formatter: (params: any) => {
           const data = params.data
           return `
             <div style="padding: 8px;">
-              ${data.name ? `<div>名称: ${data.name}</div>` : ''}
+              ${data.name ? `<div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>` : ''}
               <div>${xFieldName || 'X'}: ${data.value[0]}</div>
               <div>${yFieldName || 'Y'}: ${data.value[1]}</div>
-              <div>大小: ${data.value[2]}</div>
+              <div>${sizeFieldName || '大小'}: ${data.value[2]}</div>
             </div>
           `
         }
@@ -128,7 +130,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           symbolSize: (val: any) => {
             // 根据第三个值(大小)决定气泡尺寸，最小10，最大80
             const size = val[2] as number
-            return Math.max(10, Math.min(80, size))
+            return Math.max(10, Math.min(200, size))
           },
           data: data.map(item => ({
             name: item.name,
@@ -150,7 +152,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
 
     chartInstanceRef.current.setOption(option)
-  }, [data, xFieldName, yFieldName, loading])
+  }, [data, xFieldName, yFieldName, sizeFieldName, loading])
 
   useEffect(() => {
     const handleResize = () => {
