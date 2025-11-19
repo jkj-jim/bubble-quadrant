@@ -137,8 +137,34 @@ function App() {
     : yFieldOptionsFromHook
 
   // 根据当前配置获取和处理气泡图数据
-  // 重要：将字段选项传递给useData，这样config状态下也能使用最新的选项数据
-  const { data, loading: dataLoading } = useData(config, state, xFieldOptions, yFieldOptions)
+  // 关键修复：移除 xFieldOptions, yFieldOptions 参数，让 useData 只依赖 config
+  const { data, loading: dataLoading } = useData(config, state)
+
+
+  /**
+   * useEffect: 同步字段选项至 config state
+   * 目的：确保 config 对象始终是单一数据源，尤其是在 config 预览模式下。
+   * 逻辑：监听 useFieldOptions 返回的实时选项，当其变化时，更新到 config state 中。
+   *      这修复了预览模式下，图表因拿不到选项数据而不显示的 bug。
+   */
+  useEffect(() => {
+    const newOptions: Partial<BubbleChartConfig> = {}
+    let needsUpdate = false
+
+    if (config.xFieldType === 'category' && xFieldOptionsFromHook !== config.xFieldOptions) {
+      newOptions.xFieldOptions = xFieldOptionsFromHook
+      needsUpdate = true
+    }
+    if (config.yFieldType === 'category' && yFieldOptionsFromHook !== config.yFieldOptions) {
+      newOptions.yFieldOptions = yFieldOptionsFromHook
+      needsUpdate = true
+    }
+
+    if (needsUpdate) {
+      setConfig(prev => ({ ...prev, ...newOptions }))
+    }
+  }, [xFieldOptionsFromHook, yFieldOptionsFromHook, config.xFieldType, config.yFieldType])
+
 
   /**
    * useEffect: 组件挂载时加载已保存的配置（初始化）
@@ -161,59 +187,53 @@ function App() {
   }, [])
 
   /**
-   * useEffect: 监听数据变化（用于 view/fullscreen 状态）
-   * 关键问题：onDataChange 在混合轴切回数值轴时不触发
-   * 解决方案：监听 state 变化，当从 config 变为 view 时强制刷新
+   * useEffect: 全局事件监听
+   * 修复：确保在组件挂载后立刻开始监听，并为刷新逻辑添加防抖，防止重复执行
    */
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
+    let lastUpdateTime = 0;
+    const DEBOUNCE_TIME = 500; // ms
 
-    if (state === 'view' || state === 'fullscreen') {
-      // console.log('[App] 注册 onDataChange 监听器，state:', state)
-      unsubscribe = dashboard.onDataChange(async () => {
-        console.log('[App] onDataChange 事件触发')
-        try {
-          const savedConfig = await dashboard.getConfig()
-          if (savedConfig.customConfig) {
-            setConfig(savedConfig.customConfig as BubbleChartConfig)
-          }
-        } catch (error) {
-          console.error('[App] onDataChange 加载配置失败:', error)
+    // 定义通用的更新函数
+    const updateConfig = async () => {
+      const now = Date.now();
+      if (now - lastUpdateTime < DEBOUNCE_TIME) {
+        console.log('[App] 刷新事件过于频繁，已忽略');
+        return;
+      }
+      lastUpdateTime = now;
+
+      console.log('[App] 收到变更通知，准备刷新配置')
+      try {
+        // 无论当前本地 state 是什么，直接获取最新的权威配置
+        const savedConfig = await dashboard.getConfig()
+        if (savedConfig.customConfig) {
+          console.log('[App] 获取到最新配置，更新状态')
+          setConfig(savedConfig.customConfig as BubbleChartConfig)
         }
-      })
+      } catch (error) {
+        console.error('[App] 获取配置失败:', error)
+      }
     }
 
+    // 1. 监听配置变化 (最核心修复：解决混合轴切换不刷新的问题)
+    const offConfigChange = dashboard.onConfigChange(() => {
+      console.log('[App] onConfigChange 触发')
+      updateConfig()
+    })
+
+    // 2. 监听数据变化 (感知表格内容修改)
+    const offDataChange = dashboard.onDataChange(() => {
+      console.log('[App] onDataChange 触发')
+      updateConfig()
+    })
+
+    // 组件卸载时取消监听
     return () => {
-      if (unsubscribe) {
-        // console.log('[App] 取消 onDataChange 监听器')
-        unsubscribe()
-      }
+      offConfigChange()
+      offDataChange()
     }
-  }, [state])
-
-  /**
-   * useEffect: 监听 state 变化，作为 onDataChange 的备用刷新机制
-   * 目的：解决 onDataChange 在某些场景下不触发的问题
-   * 逻辑：当 state 发生变化时，主动从服务器获取最新配置。
-   *       这确保了即使 onDataChange 失败，视图也能在保存后正确刷新。
-   */
-  useEffect(() => {
-    const refreshConfig = async () => {
-      console.log('[App] state 变化，触发备用刷新机制，新 state:', state)
-      if (state === 'view' || state === 'fullscreen') {
-        try {
-          const savedConfig = await dashboard.getConfig()
-          if (savedConfig.customConfig) {
-            console.log('[App] 备用机制获取配置成功')
-            setConfig(savedConfig.customConfig as BubbleChartConfig)
-          }
-        } catch (error) {
-          console.error('[App] 备用机制加载配置失败:', error)
-        }
-      }
-    }
-    refreshConfig()
-  }, [state])
+  }, []) // 依赖数组为空，只在挂载时注册一次
 
   /**
    * handleConfigChange - 处理配置字段变化
@@ -258,9 +278,21 @@ function App() {
     }
 
     const { dataSource, xField, yField, sizeField, nameField } = latestConfig
-    const series: ISeries[] = [{ fieldId: xField, rollup: Rollup.SUM }, { fieldId: yField, rollup: Rollup.SUM }]
+
+    // 优化：根据字段类型选择聚合方式
+    // 类目轴用 COUNTA (计数)，数值轴用 SUM (求和)
+    // 这样能确保飞书后端能感知到数据的有效变化
+    const getRollupType = (fieldType?: 'number' | 'category') => {
+      return fieldType === 'category' ? Rollup.COUNTA : Rollup.SUM
+    }
+
+    const series: ISeries[] = [
+      { fieldId: xField, rollup: getRollupType(latestConfig.xFieldType) },
+      { fieldId: yField, rollup: getRollupType(latestConfig.yFieldType) }
+    ]
+
     if (sizeField) {
-      series.push({ fieldId: sizeField, rollup: Rollup.SUM })
+      series.push({ fieldId: sizeField, rollup: Rollup.SUM }) // sizeField 总是数值类型
     }
 
     const dataConditions = {
@@ -283,11 +315,8 @@ function App() {
       })
 
       console.log('[App] 配置保存成功')
-      // 更新本地 config 状态，为即将到来的刷新做准备
-      // 注意：不再在这里调用 setRefreshKey，刷新逻辑已移至 state 变化的 useEffect 中，以避免重复刷新
-      // console.log('[App] 更新本地config状态')
-      setConfig(configToSave)
-      // console.log('[App] 保存完成')
+      // 保存成功后，不再需要手动更新本地 state
+      // 全局的 onConfigChange 监听器会接收到通知，并自动从服务器获取最新配置来更新 state，从而保证了单一数据源
     } catch (error) {
       console.error('[App] 保存配置失败:', error)
     }
