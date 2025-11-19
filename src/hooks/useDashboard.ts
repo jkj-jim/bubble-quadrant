@@ -36,14 +36,19 @@ export type DashboardState = 'create' | 'config' | 'view' | 'fullscreen'
 /**
  * BubbleChartConfig - 气泡图配置接口
  * 功能：定义气泡图的配置项，包括数据源和字段选择
+ * 支持数值轴和类目轴两种模式
  */
 export interface BubbleChartConfig {
-  [key: string]: string | undefined;
-  dataSource?: string    // 数据源表ID
-  nameField?: string     // 气泡名称字段ID
-  xField?: string        // 横轴字段ID
-  yField?: string        // 纵轴字段ID
-  sizeField?: string     // 气泡大小字段ID
+  [key: string]: string | string[] | undefined;
+  dataSource?: string      // 数据源表ID
+  nameField?: string       // 气泡名称字段ID
+  xField?: string          // 横轴字段ID
+  yField?: string          // 纵轴字段ID
+  sizeField?: string       // 气泡大小字段ID
+  xFieldType?: 'number' | 'category'  // 横轴字段类型（数值/类目）
+  yFieldType?: 'number' | 'category'  // 纵轴字段类型（数值/类目）
+  xFieldOptions?: string[]  // 横轴字段选项列表（类目轴时使用）
+  yFieldOptions?: string[]  // 纵轴字段选项列表（类目轴时使用）
 }
 
 /**
@@ -61,6 +66,7 @@ export interface FieldInfo {
   id: string
   name: string
   type: any
+  isCategory?: boolean  // 是否支持类目轴（单选字段）
 }
 
 /**
@@ -81,5 +87,6 @@ export const useDashboard = () => {
 // 聚合导出其他hooks
 export { useTables } from './useTables'
 export { useFields } from './useFields'
+export { useFieldOptions } from './useFieldOptions'
 export { useData3 as useData, type DataItem } from './useData3'
 

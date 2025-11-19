@@ -53,8 +53,17 @@ const TEXT_FIELD_TYPES = [
 ]
 
 /**
+ * CATEGORY_FIELD_TYPES - 支持类目轴的字段类型
+ * 用途：用于横轴和纵轴的类目轴（单选字段的选项作为类目）
+ * 注意：目前只支持单选字段作为类目轴
+ */
+const CATEGORY_FIELD_TYPES = [
+  FieldType.SingleSelect, // 单选 - 作为类目轴的主要类型
+]
+
+/**
  * useFields - 字段hook
- * 功能：根据tableId获取指定工作表的所有字段，并分类为数字字段和文本字段
+ * 功能：根据tableId获取指定工作表的所有字段，并分类为数字字段、文本字段和类目字段
  *
  * 参数：
  * - tableId: 工作表ID（可选，如果为undefined则返回空数组）
@@ -63,6 +72,7 @@ const TEXT_FIELD_TYPES = [
  * - fields: 所有字段列表
  * - numericFields: 数字类型字段列表（用于xField/yField/sizeField）
  * - textFields: 文本类型字段列表（用于nameField）
+ * - categoryFields: 类目类型字段列表（可用于xField/yField的类目轴）
  * - loading: 加载状态
  * - error: 错误信息
  */
@@ -70,6 +80,7 @@ export const useFields = (tableId?: string) => {
   const [fields, setFields] = useState<FieldInfo[]>([])
   const [numericFields, setNumericFields] = useState<FieldInfo[]>([])
   const [textFields, setTextFields] = useState<FieldInfo[]>([])
+  const [categoryFields, setCategoryFields] = useState<FieldInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -107,23 +118,28 @@ export const useFields = (tableId?: string) => {
         const allFields: FieldInfo[] = []
         const numeric: FieldInfo[] = []
         const text: FieldInfo[] = []
+        const category: FieldInfo[] = []
 
         // 遍历所有字段，按类型分类
         fieldMetas.forEach(meta => {
-          const fieldInfo = {
+          const fieldInfo: FieldInfo = {
             id: meta.id,
             name: meta.name,
-            type: meta.type
+            type: meta.type,
+            isCategory: CATEGORY_FIELD_TYPES.includes(meta.type)
           }
 
           allFields.push(fieldInfo)
 
-          // 分类字段：数字类型或文本类型
+          // 分类字段：数字类型、文本类型、类目类型
           if (NUMBER_FIELD_TYPES.includes(meta.type)) {
             numeric.push(fieldInfo)  // 数字字段：可用于x/y/size
           }
           if (TEXT_FIELD_TYPES.includes(meta.type)) {
             text.push(fieldInfo)     // 文本字段：可用于name
+          }
+          if (CATEGORY_FIELD_TYPES.includes(meta.type)) {
+            category.push(fieldInfo) // 类目字段：可用于x/y的类目轴
           }
         })
 
@@ -131,6 +147,7 @@ export const useFields = (tableId?: string) => {
         setFields(allFields)
         setNumericFields(numeric)
         setTextFields(text)
+        setCategoryFields(category)
       } catch (err) {
         setError('获取字段失败：' + (err as Error).message)
         console.error('Failed to fetch fields:', err)
@@ -142,6 +159,9 @@ export const useFields = (tableId?: string) => {
     fetchFields()
   }, [tableId])
 
-  // 返回字段列表、分类字段、加载状态和错误信息
-  return { fields, numericFields, textFields, loading, error }
+  /**
+   * 返回字段列表、分类字段、加载状态和错误信息
+   * 分类字段包括：数字字段（用于数值计算）、文本字段（用于名称显示）、类目字段（可用于类目轴）
+   */
+  return { fields, numericFields, textFields, categoryFields, loading, error }
 }

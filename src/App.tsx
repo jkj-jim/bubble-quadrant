@@ -29,6 +29,7 @@ import { useState, useEffect } from 'react'
 import { Button, Typography, Select } from '@douyinfe/semi-ui'
 import { dashboard, Rollup, type ISeries } from '@lark-base-open/js-sdk'
 import { useDashboard, useTables, useFields, type BubbleChartConfig } from './hooks/useDashboard'
+import { useFieldOptions } from './hooks/useFieldOptions'
 import { useData3 as useData } from './hooks/useData3'
 import { BubbleChart } from './components/BubbleChart'
 
@@ -48,7 +49,7 @@ const { Text } = Typography
  * - label: 字段标签（显示在顶部）
  * - value: 当前选中的值
  * - onChange: 值变化回调
- * - fields: 字段列表（id 和 name）
+ * - fields: 字段列表（id、name，可选的 typeLabel）
  * - loading: 加载状态
  * - placeholder: 占位文本
  */
@@ -56,7 +57,7 @@ const FieldSelect: React.FC<{
   label: string
   value?: string
   onChange: (value: string | number | any[] | Record<string, any> | undefined) => void
-  fields: Array<{ id: string; name:string }>
+  fields: Array<{ id: string; name: string; typeLabel?: string }>
   loading?: boolean
   placeholder?: string
 }> = ({ label, value, onChange, fields, loading, placeholder }) => (
@@ -72,7 +73,7 @@ const FieldSelect: React.FC<{
     >
       {fields.map(field => (
         <Select.Option key={field.id} value={field.id}>
-          {field.name}
+          {field.typeLabel || field.name}
         </Select.Option>
       ))}
     </Select>
@@ -105,30 +106,46 @@ function App() {
   // 当前配置状态（数据源、字段选择等）
   const [config, setConfig] = useState<BubbleChartConfig>({})
 
-  // 刷新计数器：用于保存配置后手动触发图表刷新
-  // 因为 useData hook 监听 config 变化，改变 refreshKey 会促使重新计算数据
-  const [refreshKey, setRefreshKey] = useState(0)
+  // 根据选中的数据源表，获取数字字段、文本字段和类目字段列表
+  const { numericFields, textFields, categoryFields, loading: fieldsLoading } = useFields(config.dataSource)
 
-  // 根据选中的数据源表，获取数字字段和文本字段列表
-  const { numericFields, textFields, loading: fieldsLoading } = useFields(config.dataSource)
+  // 获取横轴字段的选项（如果是单选字段）
+  // 重要：无论xFieldType是什么，都尝试获取选项。如果字段不是单选，useFieldOptions会返回空数组
+  // 这样可以确保当字段从数值切换到单选时，选项能立即获取
+  const { options: xFieldOptionsFromHook } = useFieldOptions(
+    config.dataSource,
+    config.xField,
+    true  // 总是获取选项，让hook内部根据字段类型决定返回什么
+  )
+
+  // 获取纵轴字段的选项（如果是单选字段）
+  const { options: yFieldOptionsFromHook } = useFieldOptions(
+    config.dataSource,
+    config.yField,
+    true  // 总是获取选项
+  )
+
+  // 根据当前状态选择使用 config 中的选项（view 状态）还是 hook 返回的选项（config 状态）
+  // 原因：view 状态下，config 中的选项是服务器保存的权威数据
+  // config 状态下，hook 返回的选项是实时获取的最新数据
+  const xFieldOptions = state === 'view' || state === 'fullscreen'
+    ? config.xFieldOptions || xFieldOptionsFromHook
+    : xFieldOptionsFromHook
+
+  const yFieldOptions = state === 'view' || state === 'fullscreen'
+    ? config.yFieldOptions || yFieldOptionsFromHook
+    : yFieldOptionsFromHook
 
   // 根据当前配置获取和处理气泡图数据
-  const { data, loading: dataLoading } = useData(config, state, refreshKey)
+  // 重要：将字段选项传递给useData，这样config状态下也能使用最新的选项数据
+  const { data, loading: dataLoading } = useData(config, state, xFieldOptions, yFieldOptions)
 
   /**
    * useEffect: 组件挂载时加载已保存的配置（初始化）
-   *
-   * 触发时机：组件首次挂载时
-   * 执行逻辑：
-   * - 如果不是 create 状态（即不是新建），从飞书服务器获取已保存的配置
-   * - 如果获取到配置，更新 config state
-   *
-   * 重要说明：必须使用 state !== 'create' 而不是 !isConfig
-   * 原因：当从 view 切换到 config 时，isConfig 为 true，但我们需要加载配置
-   * 若使用 !isConfig 会导致配置无法加载（已在 FEISHU_DASHBOARD_TIPS.md 中记录此坑）
    */
   useEffect(() => {
     const loadInitialConfig = async () => {
+      // console.log('[App] 初始化加载配置，state:', state, 'isConfig:', isConfig)
       if (state !== 'create') {
         try {
           const savedConfig = await dashboard.getConfig()
@@ -136,7 +153,7 @@ function App() {
             setConfig(savedConfig.customConfig as BubbleChartConfig)
           }
         } catch (error) {
-          console.error('[App] ❌ 加载初始配置失败:', error)
+          console.error('[App] 加载初始配置失败:', error)
         }
       }
     }
@@ -145,79 +162,98 @@ function App() {
 
   /**
    * useEffect: 监听数据变化（用于 view/fullscreen 状态）
-   *
-   * 触发时机：state 从 create 变为 view/fullscreen 时
-   * 执行逻辑：
-   * - 仅在 view 或 fullscreen 状态下监听 onDataChange 事件
-   * - 当数据变化时，重新获取最新配置并更新 config state
-   * - 通过 config state 的变化触发 useData hook 重新计算数据
-   *
-   * 设计背景：
-   * - 解决 config → view 切换后数据不同步的问题
-   * - 采用权威配置模式：onDataChange → getConfig → setConfig
-   * - 彻底消除竞态条件，保证数据流向单一、可预测
+   * 关键问题：onDataChange 在混合轴切回数值轴时不触发
+   * 解决方案：监听 state 变化，当从 config 变为 view 时强制刷新
    */
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
 
     if (state === 'view' || state === 'fullscreen') {
+      // console.log('[App] 注册 onDataChange 监听器，state:', state)
       unsubscribe = dashboard.onDataChange(async () => {
+        console.log('[App] onDataChange 事件触发')
         try {
           const savedConfig = await dashboard.getConfig()
           if (savedConfig.customConfig) {
             setConfig(savedConfig.customConfig as BubbleChartConfig)
           }
         } catch (error) {
-          console.error('[App] ❌ onDataChange 回调中加载配置失败:', error)
+          console.error('[App] onDataChange 加载配置失败:', error)
         }
       })
     }
 
-    // 清理函数：组件卸载时取消事件监听
     return () => {
       if (unsubscribe) {
+        // console.log('[App] 取消 onDataChange 监听器')
         unsubscribe()
       }
     }
   }, [state])
 
   /**
+   * useEffect: 监听 state 变化，作为 onDataChange 的备用刷新机制
+   * 目的：解决 onDataChange 在某些场景下不触发的问题
+   * 逻辑：当 state 发生变化时，主动从服务器获取最新配置。
+   *       这确保了即使 onDataChange 失败，视图也能在保存后正确刷新。
+   */
+  useEffect(() => {
+    const refreshConfig = async () => {
+      console.log('[App] state 变化，触发备用刷新机制，新 state:', state)
+      if (state === 'view' || state === 'fullscreen') {
+        try {
+          const savedConfig = await dashboard.getConfig()
+          if (savedConfig.customConfig) {
+            console.log('[App] 备用机制获取配置成功')
+            setConfig(savedConfig.customConfig as BubbleChartConfig)
+          }
+        } catch (error) {
+          console.error('[App] 备用机制加载配置失败:', error)
+        }
+      }
+    }
+    refreshConfig()
+  }, [state])
+
+  /**
    * handleConfigChange - 处理配置字段变化
-   *
-   * 功能：统一处理所有配置字段的变更
-   * 逻辑：
-   * - 接收字段名和新值
-   * - 如果是字符串值，更新到 config state 中
-   * - 非字符串值设为 undefined（确保类型安全）
-   *
-   * 使用场景：所有字段选择器（数据源、横轴、纵轴、大小、名称）的选择变化
    */
   const handleConfigChange = (
     key: keyof BubbleChartConfig,
     value: string | number | any[] | Record<string, any> | undefined
   ) => {
-    setConfig(prev => ({ ...prev, [key]: typeof value === 'string' ? value : undefined }))
+    const stringValue = typeof value === 'string' ? value : undefined
+
+    setConfig(prev => {
+      const newConfig = { ...prev, [key]: stringValue }
+
+      // 当横轴字段变化时，检测字段类型
+      if (key === 'xField' && stringValue) {
+        const isCategory = categoryFields.some(f => f.id === stringValue)
+        // console.log('[App] xField修改为:', stringValue, '类型:', isCategory ? '类目' : '数值')
+        newConfig.xFieldType = isCategory ? 'category' : 'number'
+      }
+
+      // 当纵轴字段变化时，检测字段类型
+      if (key === 'yField' && stringValue) {
+        const isCategory = categoryFields.some(f => f.id === stringValue)
+        // console.log('[App] yField修改为:', stringValue, '类型:', isCategory ? '类目' : '数值')
+        newConfig.yFieldType = isCategory ? 'category' : 'number'
+      }
+
+      return newConfig
+    })
   }
 
   /**
    * handleSave - 保存配置
-   *
-   * 功能：
-   * 1. 校验必要字段（数据源、横轴、纵轴）
-   * 2. 构建符合飞书 SDK 要求的 dataConditions
-   * 3. 调用 dashboard.saveConfig() 保存配置到服务器
-   * 4. 触发 refreshKey 变化，更新预览图表
-   *
-   * dataConditions 结构：
-   * - tableId: 数据源表 ID
-   * - groups: 分组字段（可选，用于气泡名称）
-   * - series: 系列字段配置（包含聚合方式，如 SUM）
-   *
-   * 注意：需要 @ts-ignore 因为 TypeScript 对 dataConditions 的类型推导存在限制
    */
   const handleSave = async () => {
+    console.log('[App] 开始保存配置')
+
     const latestConfig = config
     if (!latestConfig.dataSource || !latestConfig.xField || !latestConfig.yField) {
+      console.log('[App] 配置不完整，无法保存')
       return
     }
 
@@ -233,47 +269,48 @@ function App() {
       series: series,
     }
 
+    const configToSave: BubbleChartConfig = {
+      ...latestConfig,
+      xFieldOptions: latestConfig.xFieldType === 'category' ? xFieldOptions : undefined,
+      yFieldOptions: latestConfig.yFieldType === 'category' ? yFieldOptions : undefined,
+    }
+
     try {
       await dashboard.saveConfig({
         // @ts-ignore - TypeScript 类型推导限制
         dataConditions: dataConditions,
-        customConfig: latestConfig
+        customConfig: configToSave
       })
-      setRefreshKey(k => k + 1)
 
+      console.log('[App] 配置保存成功')
+      // 更新本地 config 状态，为即将到来的刷新做准备
+      // 注意：不再在这里调用 setRefreshKey，刷新逻辑已移至 state 变化的 useEffect 中，以避免重复刷新
+      // console.log('[App] 更新本地config状态')
+      setConfig(configToSave)
+      // console.log('[App] 保存完成')
     } catch (error) {
-      console.error('[App] ❌ 保存配置失败:', error)
+      console.error('[App] 保存配置失败:', error)
     }
   }
 
   /**
    * renderContent - 根据当前状态渲染不同内容
-   *
-   * 渲染逻辑分为两类：
-   *
-   * 1. 查看状态（view/fullscreen）：
-   *    - 全屏显示气泡图
-   *    - 背景色：fullscreen 状态为透明，view 状态为白色
-   *    - 从 savedConfig 中获取字段名传递给 BubbleChart
-   *    - 显示加载状态
-   *
-   * 2. 配置状态（config/create）：
-   *    - 左侧：图表预览区域（实时预览配置效果）
-   *    -    - 宽度自适应（flex: 1）
-   *    -    - 内边距：0px（使图表填满预览区域）
-   *    -    - 白色背景，圆角边框
-   *    - 右侧：配置面板（340px 宽）
-   *    -    - 字段选择器（数据源、横轴、纵轴、大小、名称）
-   *    -    - 保存按钮（校验必填项后保存）
-   *    -    - 灰色背景，左侧边框分隔
-   *
-   * 样式设计：
-   * - 使用 flex 布局，左右区域自适应
-   * - 固定右侧面板宽度（340px），左侧预览区域自适应剩余空间
-   * - 最小高度设为 0，防止 flex 布局出现不必要滚动
-   * - 保存按钮固定在底部
    */
   const renderContent = () => {
+    // console.log('[App] 渲染图表，state:', state, 'data.length:', data?.length)
+
+    // 辅助函数：合并数字字段和类目字段，并标注字段类型
+    const getCombinedFieldsWithType = () => {
+      const allFields = [...numericFields, ...categoryFields]
+      return allFields.map(field => {
+        const isCategory = categoryFields.some(f => f.id === field.id)
+        return {
+          id: field.id,
+          name: field.name,
+          typeLabel: isCategory ? `${field.name}（类目）` : `${field.name}（数值）`
+        }
+      })
+    }
     if (!isConfig) {
       return (
         <div style={{
@@ -283,10 +320,14 @@ function App() {
         }}>
           <BubbleChart
             data={data}
-            xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name : undefined}
-            yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name : undefined}
-            sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name : undefined}
+            xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
+            yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
+            sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}
             loading={dataLoading}
+            xAxisType={config.xFieldType === 'category' ? 'category' : 'value'}
+            yAxisType={config.yFieldType === 'category' ? 'category' : 'value'}
+            xAxisData={config.xFieldType === 'category' ? xFieldOptions : undefined}
+            yAxisData={config.yFieldType === 'category' ? yFieldOptions : undefined}
           />
         </div>
       )
@@ -304,10 +345,14 @@ function App() {
           }}>
             <BubbleChart
               data={data}
-              xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name : undefined}
-              yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name : undefined}
-              sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name : undefined}
+              xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
+              yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
+              sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}
               loading={dataLoading}
+              xAxisType={config.xFieldType === 'category' ? 'category' : 'value'}
+              yAxisType={config.yFieldType === 'category' ? 'category' : 'value'}
+              xAxisData={config.xFieldType === 'category' ? xFieldOptions : undefined}
+              yAxisData={config.yFieldType === 'category' ? yFieldOptions : undefined}
             />
           </div>
         </div>
@@ -345,22 +390,22 @@ function App() {
             {/* 字段选择器：仅在选中数据源后显示 */}
             {config.dataSource && (
               <>
-                {/* 横轴：必选，必须为数字字段 */}
+                {/* 横轴：必选，支持数字字段和单选字段（类目） */}
                 <FieldSelect
                   label="横轴（必选）"
                   value={config.xField}
                   onChange={(value) => handleConfigChange('xField', value)}
-                  fields={numericFields}
+                  fields={getCombinedFieldsWithType()}
                   loading={fieldsLoading}
                   placeholder="选择字段"
                 />
 
-                {/* 纵轴：必选，必须为数字字段 */}
+                {/* 纵轴：必选，支持数字字段和单选字段（类目） */}
                 <FieldSelect
                   label="纵轴（必选）"
                   value={config.yField}
                   onChange={(value) => handleConfigChange('yField', value)}
-                  fields={numericFields}
+                  fields={getCombinedFieldsWithType()}
                   loading={fieldsLoading}
                   placeholder="选择字段"
                 />

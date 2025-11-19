@@ -26,6 +26,7 @@ import type { DataItem } from '../hooks/useDashboard'
 /**
  * BubbleChartProps - 气泡图组件属性
  * 功能：定义组件接收的props类型
+ * 扩展：支持数值轴和类目轴两种模式
  */
 export interface BubbleChartProps {
   data: DataItem[]          // 图表数据
@@ -33,18 +34,30 @@ export interface BubbleChartProps {
   yFieldName?: string       // 纵轴字段名（用于显示）
   sizeFieldName?: string    // 大小字段名（用于显示）
   loading?: boolean         // 加载状态
+  xAxisType?: 'value' | 'category'  // 横轴类型（数值/类目）
+  yAxisType?: 'value' | 'category'  // 纵轴类型（数值/类目）
+  xAxisData?: string[]      // 横轴类目选项列表
+  yAxisData?: string[]      // 纵轴类目选项列表
 }
 
 /**
  * BubbleChart - 气泡图组件
- * 功能：封装ECharts气泡图，支持数据渲染和响应式布局
+ * 功能：封装ECharts气泡图，支持数据渲染、响应式布局、数值轴和类目轴
+ * 说明：
+ * - 支持数值轴（type: 'value'）用于传统的气泡图
+ * - 支持类目轴（type: 'category'）用于散点图和混合轴场景
+ * - 类目轴显示用户在单选字段中设定的选项顺序
  */
 export const BubbleChart: React.FC<BubbleChartProps> = ({
   data,
   xFieldName,
   yFieldName,
   sizeFieldName,
-  loading
+  loading,
+  xAxisType = 'value',  // 默认为数值轴，向后兼容
+  yAxisType = 'value',  // 默认为数值轴，向后兼容
+  xAxisData,
+  yAxisData,
 }) => {
   // chartRef: ECharts容器DOM元素引用
   const chartRef = useRef<HTMLDivElement>(null)
@@ -79,6 +92,90 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         return
       }
     }
+    /**
+     * 动态生成X轴配置
+     * 根据轴类型（value/category）生成不同的配置
+     */
+    const xAxis: any = {
+      type: xAxisType,
+      name: xFieldName || '横轴',
+      nameLocation: 'end',
+      nameGap: 10,
+      splitLine: {
+        lineStyle: {
+          color: '#f0f0f0'
+        }
+      }
+    }
+
+    // 如果是类目轴，添加数据列表
+    if (xAxisType === 'category' && xAxisData) {
+      xAxis.data = xAxisData
+    }
+
+    /**
+     * 动态生成Y轴配置
+     * 根据轴类型（value/category）生成不同的配置
+     */
+    const yAxis: any = {
+      type: yAxisType,
+      name: yFieldName || '纵轴',
+      nameLocation: 'end',
+      nameGap: 10,
+      splitLine: {
+        lineStyle: {
+          color: '#f0f0f0'
+        }
+      }
+    }
+
+    // 如果是类目轴，添加数据列表
+    if (yAxisType === 'category' && yAxisData) {
+      yAxis.data = yAxisData
+    }
+
+    /**
+     * 处理图表数据，根据轴类型选择不同的值
+     * 数值轴：直接使用数值
+     * 类目轴：使用类目索引（指向 options 数组中的位置），但显示原始文本
+     */
+    const seriesData = data.map(item => {
+      // X轴值处理
+      let xValue: number | string
+      let xDisplay: string
+
+      if (xAxisType === 'category' && item.xCategoryIndex !== undefined) {
+        xValue = item.xCategoryIndex  // 使用索引，ECharts会自动映射到类目
+        xDisplay = String(item.x)     // 显示原始文本
+      } else {
+        xValue = item.x as number
+        xDisplay = String(item.x)
+      }
+
+      // Y轴值处理
+      let yValue: number | string
+      let yDisplay: string
+
+      if (yAxisType === 'category' && item.yCategoryIndex !== undefined) {
+        yValue = item.yCategoryIndex  // 使用索引
+        yDisplay = String(item.y)     // 显示原始文本
+      } else {
+        yValue = item.y as number
+        yDisplay = String(item.y)
+      }
+
+      return {
+        name: item.name,
+        value: [xValue, yValue, item.size] as [number | string, number | string, number],
+        // 使用原始文本作为显示值
+        data: [xDisplay, yDisplay, item.size],
+        itemStyle: {
+          color: '#1890ff',
+          opacity: 0.7
+        }
+      }
+    })
+
     const option: EChartsOption = {
       backgroundColor: 'transparent',
       grid: {
@@ -88,28 +185,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         top: '40px',
         containLabel: true
       },
-      xAxis: {
-        type: 'value',
-        name: xFieldName || '横轴',
-        nameLocation: 'end',  // 将横坐标轴标题放在右侧
-        nameGap: 10,  // 调整标题与轴线的距离
-        splitLine: {
-          lineStyle: {
-            color: '#f0f0f0'
-          }
-        }
-      },
-      yAxis: {
-        type: 'value',
-        name: yFieldName || '纵轴',
-        nameLocation: 'end',  // 将纵坐标轴标题放在上方
-        nameGap: 10,  // 调整标题与轴线的距离
-        splitLine: {
-          lineStyle: {
-            color: '#f0f0f0'
-          }
-        }
-      },
+      xAxis,
+      yAxis,
       tooltip: {//用于调整 hover 时的提示框
         trigger: 'item',
         formatter: (params: any) => {
@@ -132,14 +209,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
             const size = val[2] as number
             return Math.max(10, Math.min(200, size))
           },
-          data: data.map(item => ({
-            name: item.name,
-            value: [item.x, item.y, item.size],
-            itemStyle: {
-              color: '#1890ff',
-              opacity: 0.7
-            }
-          })),
+          data: seriesData,
           emphasis: {
             itemStyle: {
               opacity: 1,
@@ -152,7 +222,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
 
     chartInstanceRef.current.setOption(option)
-  }, [data, xFieldName, yFieldName, sizeFieldName, loading])
+  }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData])
 
   useEffect(() => {
     const handleResize = () => {

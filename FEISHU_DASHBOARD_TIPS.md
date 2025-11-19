@@ -100,3 +100,187 @@ useEffect(() => {
 -   如果你的图表需要复杂的、自定义的数据处理逻辑（比如我们的气泡图），请选择 **模式 B (前端计算)**，并严格遵循其数据同步方案。
 
 ---
+
+## 🎯 类目轴支持的经验总结（2025-11-18）
+
+在实现「单选字段可作为 X/Y 轴类目」功能时，积累了以下关键经验：
+
+### 1. 数据流设计：区分实时状态 vs 权威状态
+
+**核心挑战**：字段选项（fieldOptions）的获取时机和位置
+
+- **Config 状态**：需要实时获取选项（通过 `useFieldOptions` hook），以便在用户切换字段时立即显示图表预览
+- **View 状态**：需要使用已保存的权威选项（从 `config.xFieldOptions` 读取），避免重复请求
+
+**解决方案**：
+```typescript
+// 实时获取（config 状态使用）
+const { options: xFieldOptionsFromHook } = useFieldOptions(...)
+
+// 根据状态选择使用哪份数据
+const xFieldOptions = state === 'view' || state === 'fullscreen'
+  ? config.xFieldOptions || xFieldOptionsFromHook  // view 优先用已保存的
+  : xFieldOptionsFromHook                           // config 用实时获取的
+```
+
+**经验教训**：
+- 不要将所有数据都塞进 `config` state
+- 明确区分「需要实时获取的数据」和「需要保存的权威数据」
+- 在组件层面做数据选择，而不是在 hook 内部
+
+### 2. 字段识别与分类
+
+**实现方式**：
+```typescript
+// 识别类目字段（目前只支持单选字段）
+const CATEGORY_FIELD_TYPES = [FieldType.SingleSelect]
+
+// 在 useFields 中为字段添加标识
+export interface FieldInfo {
+  id: string
+  name: string
+  type: any
+  isCategory?: boolean  // 是否支持类目轴（单选字段）
+}
+```
+
+**最佳实践**：
+- 在获取字段列表时立即识别类型，避免后续重复判断
+- 使用 `isCategory` 标志，而不是运行时判断 `field.type === FieldType.SingleSelect`
+- UI 层面根据 `isCategory` 显示标签，帮助用户理解字段用途
+
+### 3. 外部传入选项的架构设计
+
+**问题**：`useData` hook 如何获取字段选项？
+
+**方案对比**：
+
+**方案A（不推荐）**：在 `useData` 内部调用 `useFieldOptions`
+```typescript
+// ❌ 导致 hook 嵌套，违反 React Rules of Hooks
+const useData = (config, state) => {
+  const { options } = useFieldOptions(config.dataSource, config.xField)
+  // ...
+}
+```
+
+**方案B（推荐）**：父组件获取，通过参数传递
+```typescript
+// ✅ 清晰的数据流，符合 React 设计原则
+const useData = (config, state, xFieldOptions?, yFieldOptions?) => {
+  // 直接使用传入的选项
+}
+
+// App.tsx 中
+const { options: xFieldOptions } = useFieldOptions(...)
+const { data } = useData(config, state, xFieldOptions)
+```
+
+**经验总结**：
+- 保持 hooks 的职责单一，不要嵌套调用
+- 由调用方负责数据获取，被调用方专注于业务逻辑
+- 符合「依赖注入」原则，提高可测试性
+
+### 4. 向后兼容的接口设计
+
+**挑战**：新增字段类型后，避免破坏现有代码
+
+**解决方案**：
+```typescript
+export interface BubbleChartConfig {
+  // ...现有字段
+  xFieldType?: 'number' | 'category'  // 可选，默认 'number'
+  yFieldType?: 'number' | 'category'  // 可选，默认 'number'
+  xFieldOptions?: string[]  // 只在类目模式时使用
+  yFieldOptions?: string[]  // 只在类目模式时使用
+}
+
+// 使用时提供回退值
+const xAxisType = config.xFieldType === 'category' ? 'category' : 'value'
+```
+
+**最佳实践**：
+- 新字段使用可选类型（`?`）
+- 提供合理的默认值（通常是不改变原有行为的值）
+- 在取值处做兼容处理，而不是在存储处
+
+### 5. ECharts 类目轴的数据映射
+
+**关键技巧**：类目索引 vs 显示文本
+
+```typescript
+// 数据处理（useData3.ts）
+const processCategoryValue = (value, fieldOptions) => {
+  // 返回索引位置（ECharts 需要）
+  const index = fieldOptions.indexOf(textValue)
+  return { original: textValue, index }
+}
+
+// 图表配置（BubbleChart.tsx）
+const seriesData = data.map(item => {
+  return {
+    value: [
+      item.xCategoryIndex ?? item.x,  // 使用索引，ECharts 自动映射
+      item.yCategoryIndex ?? item.y,
+      item.size
+    ],
+    // ...
+  }
+})
+```
+
+**经验总结**：
+- ECharts 类目轴需要通过索引（0,1,2...）定位
+- 但 tooltip 中显示给用户时，应使用原始文本
+- 在 DataItem 中同时保存 `xCategoryIndex` 和原始值 `x`
+
+### 6. 错误处理：非类目字段调用 getOptions
+
+**问题**：`useFieldOptions` 可能被用于非单选字段
+
+**错误方案**：
+```typescript
+// ❌ 抛出错误，导致调用方崩溃
+if (fieldMeta.type !== FieldType.SingleSelect) {
+  throw new Error('该字段不是单选字段')
+}
+```
+
+**正确方案**：
+```typescript
+// ✅ 返回空数组，让调用方优雅处理
+if (fieldMeta.type !== FieldType.SingleSelect) {
+  return []  // 返回空数组，而不是报错
+}
+```
+
+**设计原则**：
+- Hooks 应该「优雅降级」，而不是「崩溃报错」
+- 让调用方根据返回值做决策（`options.length === 0`）
+- 提高组件的健壮性和容错性
+
+### 7. onDataChange 事件的可靠性问题
+
+**问题**：飞书 SDK 的 `onDataChange` 事件在某些场景下不触发
+
+**现象**：
+- ✅ 双数值 → 混合轴：触发频率 100%
+- ❌ 混合轴 → 双数值：触发频率约 20%（80% 概率不触发）
+
+**临时解决方案**：
+```typescript
+useEffect(() => {
+  if ((state === 'view' || state === 'fullscreen') && refreshKey === 0) {
+    setRefreshKey(k => k + 1)  // 强制刷新
+  }
+}, [state])
+```
+
+**经验教训**：
+- 不要完全依赖第三方事件的可靠性
+- 设计时考虑降级方案（如本例中的 state 变化监听）
+- 建立详细的日志系统，通过日志分析定位问题
+- 关键操作（如数据刷新）应有多种触发机制
+
+---
+
