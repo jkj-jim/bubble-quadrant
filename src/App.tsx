@@ -113,34 +113,22 @@ function App() {
   // 获取横轴字段的选项（如果是单选字段）
   // 重要：无论xFieldType是什么，都尝试获取选项。如果字段不是单选，useFieldOptions会返回空数组
   // 这样可以确保当字段从数值切换到单选时，选项能立即获取
-  const { options: xFieldOptionsFromHook } = useFieldOptions(
+  const { options: liveXFieldOptions } = useFieldOptions(
     config.dataSource,
     config.xField,
     true  // 总是获取选项，让hook内部根据字段类型决定返回什么
   )
 
   // 获取纵轴字段的选项（如果是单选字段）
-  const { options: yFieldOptionsFromHook } = useFieldOptions(
+  const { options: liveYFieldOptions } = useFieldOptions(
     config.dataSource,
     config.yField,
     true  // 总是获取选项
   )
 
-  // 根据当前状态选择使用 config 中的选项（view 状态）还是 hook 返回的选项（config 状态）
-  // 原因：view 状态下，config 中的选项是服务器保存的权威数据
-  // config 状态下，hook 返回的选项是实时获取的最新数据
-  const xFieldOptions = state === 'view' || state === 'fullscreen'
-    ? config.xFieldOptions || xFieldOptionsFromHook
-    : xFieldOptionsFromHook
-
-  const yFieldOptions = state === 'view' || state === 'fullscreen'
-    ? config.yFieldOptions || yFieldOptionsFromHook
-    : yFieldOptionsFromHook
-
-  // 关键修复：不再使用不稳定的三元表达式来决定 options，
-  // 而是始终传递从 useFieldOptions hook 中获取的实时选项。
-  // 这能确保传递给 useData 的 props 在重渲染期间是稳定的，从而避免二次刷新。
-  const { data, loading: dataLoading } = useData(config, state, xFieldOptionsFromHook, yFieldOptionsFromHook)
+  // 根据当前配置获取和处理气泡图数据
+  // useData hook 现在会返回 data 和最终用于渲染的 options
+  const { data, loading: dataLoading, finalXOptions, finalYOptions } = useData(config, state, liveXFieldOptions, liveYFieldOptions)
 
   /**
    * useEffect: 组件挂载时加载已保存的配置（初始化）
@@ -278,8 +266,8 @@ function App() {
 
     const configToSave: BubbleChartConfig = {
       ...latestConfig,
-      xFieldOptions: latestConfig.xFieldType === 'category' ? xFieldOptions : undefined,
-      yFieldOptions: latestConfig.yFieldType === 'category' ? yFieldOptions : undefined,
+      xFieldOptions: latestConfig.xFieldType === 'category' ? liveXFieldOptions : undefined,
+      yFieldOptions: latestConfig.yFieldType === 'category' ? liveYFieldOptions : undefined,
     }
 
     try {
@@ -330,8 +318,8 @@ function App() {
             loading={dataLoading}
             xAxisType={config.xFieldType === 'category' ? 'category' : 'value'}
             yAxisType={config.yFieldType === 'category' ? 'category' : 'value'}
-            xAxisData={config.xFieldType === 'category' ? xFieldOptions : undefined}
-            yAxisData={config.yFieldType === 'category' ? yFieldOptions : undefined}
+            xAxisData={finalXOptions}
+            yAxisData={finalYOptions}
           />
         </div>
       )
@@ -355,8 +343,8 @@ function App() {
               loading={dataLoading}
               xAxisType={config.xFieldType === 'category' ? 'category' : 'value'}
               yAxisType={config.yFieldType === 'category' ? 'category' : 'value'}
-              xAxisData={config.xFieldType === 'category' ? xFieldOptions : undefined}
-              yAxisData={config.yFieldType === 'category' ? yFieldOptions : undefined}
+              xAxisData={finalXOptions}
+              yAxisData={finalYOptions}
             />
           </div>
         </div>

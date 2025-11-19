@@ -136,15 +136,17 @@ const extractTextFromField = (value: any): string => {
 export const useData3 = (
   config: BubbleChartConfig,
   state: string,
-  externalXFieldOptions?: string[],
-  externalYFieldOptions?: string[],
+  liveXFieldOptions?: string[],
+  liveYFieldOptions?: string[],
 ) => {
   const [data, setData] = useState<DataItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [finalXOptions, setFinalXOptions] = useState<string[] | undefined>()
+  const [finalYOptions, setFinalYOptions] = useState<string[] | undefined>()
 
   useEffect(() => {
     const fetchData = async (currentConfig: BubbleChartConfig) => {
-      console.log('[useData3] 开始获取数据', { dataSource: currentConfig.dataSource, state })
+      // console.log('[useData3] 开始获取数据', { dataSource: currentConfig.dataSource, state })
 
       const {
         dataSource,
@@ -157,13 +159,13 @@ export const useData3 = (
       } = currentConfig
 
       if (!dataSource || !xField || !yField) {
-        console.log('[useData3] 配置不完整，清空数据')
+        // console.log('[useData3] 配置不完整，清空数据')
         setData([])
         return
       }
 
       setLoading(true)
-      console.log('[useData3] 字段类型:', { xFieldType, yFieldType })
+      // console.log('[useData3] 字段类型:', { xFieldType, yFieldType })
 
       try {
         const table = await bitable.base.getTable(dataSource)
@@ -176,16 +178,19 @@ export const useData3 = (
           records = recordResult.records
         }
 
-        // 修复：优先使用外部传入的实时选项（用于 config 预览），
-        // 否则使用 config 中保存的选项（用于 view 模式）
-        const xFieldOptions =
-          xFieldType === 'category'
-            ? (externalXFieldOptions ?? currentConfig.xFieldOptions)
-            : undefined
-        const yFieldOptions =
-          yFieldType === 'category'
-            ? (externalYFieldOptions ?? currentConfig.yFieldOptions)
-            : undefined
+        // 核心逻辑：在 hook 内部根据 state 决定使用哪个 options
+        // view 状态优先用 config 中存的权威数据，config 状态用实时获取的 live 数据
+        const xOptions = state === 'view' || state === 'fullscreen'
+            ? (currentConfig.xFieldOptions || liveXFieldOptions)
+            : liveXFieldOptions
+
+        const yOptions = state === 'view' || state === 'fullscreen'
+            ? (currentConfig.yFieldOptions || liveYFieldOptions)
+            : liveYFieldOptions
+        
+        // 将最终使用的 options 保存到 state 中，以便返回给 UI 层
+        setFinalXOptions(xOptions)
+        setFinalYOptions(yOptions)
 
         const groups: Record<string, any[]> = {}
         if (nameField) {
@@ -211,8 +216,8 @@ export const useData3 = (
             sizeField,
             xFieldType,
             yFieldType,
-            xFieldOptions,
-            yFieldOptions
+            xOptions, // 使用这里计算出的 options
+            yOptions  // 使用这里计算出的 options
           )
 
           if (item) {
@@ -223,7 +228,7 @@ export const useData3 = (
           }
         }
 
-        console.log('[useData3] 数据处理完成，记录条数:', processedData.length)
+        // console.log('[useData3] 数据处理完成，记录条数:', processedData.length)
         setData(processedData)
       } catch (error) {
         console.error('[useData3] 获取数据失败:', error)
@@ -234,9 +239,13 @@ export const useData3 = (
     }
 
     fetchData(config)
-  }, [config, state, externalXFieldOptions, externalYFieldOptions])
+  }, [
+    config,
+    liveXFieldOptions,
+    liveYFieldOptions,
+  ]) // 关键：依赖项不包含 state，因此 state 的变化不会直接触发数据重获取
 
-  return { data, loading }
+  return { data, loading, finalXOptions, finalYOptions }
 }
 
 /**
