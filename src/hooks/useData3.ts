@@ -136,11 +136,11 @@ const extractTextFromField = (value: any): string => {
 export const useData3 = (
   config: BubbleChartConfig,
   state: string,
+  externalXFieldOptions?: string[],
+  externalYFieldOptions?: string[],
 ) => {
   const [data, setData] = useState<DataItem[]>([])
   const [loading, setLoading] = useState(false)
-
-  // console.log('[useData3] state:', state, 'refreshKey:', refreshKey)
 
   useEffect(() => {
     const fetchData = async (currentConfig: BubbleChartConfig) => {
@@ -164,7 +164,6 @@ export const useData3 = (
 
       setLoading(true)
       console.log('[useData3] 字段类型:', { xFieldType, yFieldType })
-      // console.log('[useData3] 选项数据:', { externalXFieldOptions, externalYFieldOptions })
 
       try {
         const table = await bitable.base.getTable(dataSource)
@@ -177,12 +176,16 @@ export const useData3 = (
           records = recordResult.records
         }
 
-        // 关键修复：直接从传入的 config 中获取权威的 options
-        const xFieldOptions = xFieldType === 'category' ? currentConfig.xFieldOptions : undefined
-        const yFieldOptions = yFieldType === 'category' ? currentConfig.yFieldOptions : undefined
-
-
-        // console.log('[useData3] 选项:', { xFieldOptions, yFieldOptions })
+        // 修复：优先使用外部传入的实时选项（用于 config 预览），
+        // 否则使用 config 中保存的选项（用于 view 模式）
+        const xFieldOptions =
+          xFieldType === 'category'
+            ? (externalXFieldOptions ?? currentConfig.xFieldOptions)
+            : undefined
+        const yFieldOptions =
+          yFieldType === 'category'
+            ? (externalYFieldOptions ?? currentConfig.yFieldOptions)
+            : undefined
 
         const groups: Record<string, any[]> = {}
         if (nameField) {
@@ -231,7 +234,7 @@ export const useData3 = (
     }
 
     fetchData(config)
-  }, [config])
+  }, [config, state, externalXFieldOptions, externalYFieldOptions])
 
   return { data, loading }
 }

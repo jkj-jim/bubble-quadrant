@@ -25,7 +25,7 @@
  * - 子组件（BubbleChart）
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button, Typography, Select } from '@douyinfe/semi-ui'
 import { dashboard, Rollup, type ISeries } from '@lark-base-open/js-sdk'
 import { useDashboard, useTables, useFields, type BubbleChartConfig } from './hooks/useDashboard'
@@ -105,6 +105,7 @@ function App() {
 
   // 当前配置状态（数据源、字段选择等）
   const [config, setConfig] = useState<BubbleChartConfig>({})
+  const lastUpdateTimeRef = useRef(0);
 
   // 根据选中的数据源表，获取数字字段、文本字段和类目字段列表
   const { numericFields, textFields, categoryFields, loading: fieldsLoading } = useFields(config.dataSource)
@@ -136,35 +137,10 @@ function App() {
     ? config.yFieldOptions || yFieldOptionsFromHook
     : yFieldOptionsFromHook
 
-  // 根据当前配置获取和处理气泡图数据
-  // 关键修复：移除 xFieldOptions, yFieldOptions 参数，让 useData 只依赖 config
-  const { data, loading: dataLoading } = useData(config, state)
-
-
-  /**
-   * useEffect: 同步字段选项至 config state
-   * 目的：确保 config 对象始终是单一数据源，尤其是在 config 预览模式下。
-   * 逻辑：监听 useFieldOptions 返回的实时选项，当其变化时，更新到 config state 中。
-   *      这修复了预览模式下，图表因拿不到选项数据而不显示的 bug。
-   */
-  useEffect(() => {
-    const newOptions: Partial<BubbleChartConfig> = {}
-    let needsUpdate = false
-
-    if (config.xFieldType === 'category' && xFieldOptionsFromHook !== config.xFieldOptions) {
-      newOptions.xFieldOptions = xFieldOptionsFromHook
-      needsUpdate = true
-    }
-    if (config.yFieldType === 'category' && yFieldOptionsFromHook !== config.yFieldOptions) {
-      newOptions.yFieldOptions = yFieldOptionsFromHook
-      needsUpdate = true
-    }
-
-    if (needsUpdate) {
-      setConfig(prev => ({ ...prev, ...newOptions }))
-    }
-  }, [xFieldOptionsFromHook, yFieldOptionsFromHook, config.xFieldType, config.yFieldType])
-
+  // 关键修复：不再使用不稳定的三元表达式来决定 options，
+  // 而是始终传递从 useFieldOptions hook 中获取的实时选项。
+  // 这能确保传递给 useData 的 props 在重渲染期间是稳定的，从而避免二次刷新。
+  const { data, loading: dataLoading } = useData(config, state, xFieldOptionsFromHook, yFieldOptionsFromHook)
 
   /**
    * useEffect: 组件挂载时加载已保存的配置（初始化）
@@ -191,17 +167,16 @@ function App() {
    * 修复：确保在组件挂载后立刻开始监听，并为刷新逻辑添加防抖，防止重复执行
    */
   useEffect(() => {
-    let lastUpdateTime = 0;
     const DEBOUNCE_TIME = 500; // ms
 
     // 定义通用的更新函数
     const updateConfig = async () => {
       const now = Date.now();
-      if (now - lastUpdateTime < DEBOUNCE_TIME) {
+      if (now - lastUpdateTimeRef.current < DEBOUNCE_TIME) {
         console.log('[App] 刷新事件过于频繁，已忽略');
         return;
       }
-      lastUpdateTime = now;
+      lastUpdateTimeRef.current = now;
 
       console.log('[App] 收到变更通知，准备刷新配置')
       try {
