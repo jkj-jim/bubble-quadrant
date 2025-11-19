@@ -31,8 +31,6 @@ useEffect(() => {
 }, []);
 ```
 
----
-
 ### 模式 B：前端计算模式
 
 - **工作方式**：插件通过 `table.getRecords({})` 获取**原始数据**，然后在前端的 JavaScript 代码中自行实现分组、聚合等所有计算逻辑。
@@ -67,16 +65,20 @@ useEffect(() => {
   };
 }, [state]);
 ```
-
----
-
-## 🔍 数据同步问题深度解析 (前端计算模式)
+#### 🔍 数据同步问题深度解析 (前端计算模式)
 
 **问题**：在 `config` 模式下保存配置后，`view` 模式不刷新，显示旧数据。
 
 **根源**：竞态条件 (Race Condition)。`saveConfig` 会触发 `onDataChange`。如果此时我们既有主动刷新逻辑（如 `refreshKey`），又有处理 `onDataChange` 的逻辑，且后者实现不当（如使用了旧的 state 或 ref），就会导致用旧配置发起的请求覆盖了新配置的请求结果。
 
 **最终解决方案**：采用上述**模式 B 的最佳实践**，将 `onDataChange` 的职责明确为“触发一次配置重载”，而不是直接处理数据。这能从根本上消除竞态条件。
+
+
+### ✅ 总结：选择适合你的模式
+
+-   如果你的图表逻辑简单，飞书的 `dataConditions` 聚合能力已经满足需求，请选择 **模式 A (后端计算)**，它更简单高效。
+-   如果你的图表需要复杂的、自定义的数据处理逻辑（比如我们的气泡图），请选择 **模式 B (前端计算)**，并严格遵循其数据同步方案。
+
 
 ## 🐛 调试与排查技巧
 
@@ -94,12 +96,6 @@ useEffect(() => {
     -   **前端计算模式**：检查 `onDataChange` 是否触发了 `getConfig`，以及 `setConfig` 是否成功更新了状态。
 3.  **检查数据获取**：检查 `useData` 等 hooks 的 `useEffect` 依赖项是否正确，是否在新 `config` 传入后重新执行。
 
-## ✅ 总结：选择适合你的模式
-
--   如果你的图表逻辑简单，飞书的 `dataConditions` 聚合能力已经满足需求，请选择 **模式 A (后端计算)**，它更简单高效。
--   如果你的图表需要复杂的、自定义的数据处理逻辑（比如我们的气泡图），请选择 **模式 B (前端计算)**，并严格遵循其数据同步方案。
-
----
 
 ## 🎯 类目轴支持的经验总结（2025-11-18）
 
@@ -283,4 +279,109 @@ useEffect(() => {
 - 关键操作（如数据刷新）应有多种触发机制
 
 ---
+## ⚙️ 高级刷新机制：从“不刷新”到“不闪烁”的完整指南（2025-11-18）
 
+在解决了“类目轴”的功能后，我们遭遇了从“配置保存后不刷新”到“刷新时闪烁”的一系列棘手问题。本章节旨在复盘整个调试过程，提供一个健壮、优雅的仪表盘刷新方案。
+
+### 1. 核心问题：`onConfigChange` 事件丢失之谜
+
+**现象**：保存配置后，图表在某些情况下（特别是涉及类目轴时）不刷新。
+
+**错误根源**：**竞态条件 (Race Condition)**。`saveConfig()` 成功后，飞书后端会**立即**触发 `onConfigChange` 事件。但此时前端的 `useEffect` 监听器可能因为依赖了 `[state]`，尚未从 `config` 状态切换到 `view` 状态，导致监听器还未注册，完美错过了这个关键事件。
+
+**错误代码示例**:
+```typescript
+// ❌ 错误示范：依赖 state，监听器注册太晚
+useEffect(() => {
+  if (state === 'view') {
+    // 当 state 切换到 'view' 时，事件可能已经发送完毕
+    const unsubscribe = dashboard.onConfigChange(update);
+    return () => unsubscribe();
+  }
+}, [state]); // 问题就在这个依赖项
+```
+
+**正确解法**：`useEffect` 的依赖项必须为空数组 `[]`，确保监听器在组件首次挂载时就“全程在线”，绝不错过任何事件。
+
+**关键知识点**：`onConfigChange` 是 `saveConfig` 之后最快、最可靠的事件，必须优先监听它。`onDataChange` 则主要用于响应用户在多维表格中直接修改单元格数据的场景。
+
+### 2. 副作用：“闪烁”问题（二次刷新）的产生与解决
+
+**现象**：解决了“不刷新”的问题后，视图在保存后会快速闪烁一下。
+
+**根源分析**：两个几乎同时发生的异步更新导致的二次渲染。
+1.  **第一次刷新**：`onConfigChange` 事件被监听到，触发 `getConfig()` 和 `setConfig()`。
+2.  **第二次刷新**：几乎在同时，SDK 内部也将 `state` 从 `'config'` 切换到 `'view'`，这又一次触发了组件的重新渲染。
+
+**最终方案：“防抖 (Debounce) + 深度比对 (Deep Compare)”**
+
+这个方案可以优雅地合并短时间内的多次刷新请求，并忽略内容完全相同的更新。
+
+-   **防抖**：使用 `setTimeout` 将短时间内连续触发的多个事件（如 `onConfigChange` 和 `onDataChange`）合并为一次最终执行。一个 200ms 的延时足以覆盖这两个事件的间隔。
+-   **深度比对**：在 `setConfig` 前，使用 `JSON.stringify` 对比新旧配置的内容。如果内容完全相同，则通过返回旧的 state 对象（`return prevConfig`）来完全阻止 React 的这次无效渲染。
+
+**最佳实践代码**:
+```typescript
+// App.tsx 中的最终解决方案
+useEffect(() => {
+  let debounceTimer: number | undefined;
+
+  const fetchAndSetConfig = async () => {
+    const savedConfig = await dashboard.getConfig();
+    if (savedConfig.customConfig) {
+      const newConfig = savedConfig.customConfig as BubbleChartConfig;
+      setConfig(prevConfig => {
+        // 只有当新配置和旧配置的内容真正不同时，才更新 state
+        if (JSON.stringify(prevConfig) === JSON.stringify(newConfig)) {
+          return prevConfig; // 内容相同，跳过渲染
+        }
+        return newConfig; // 内容不同，执行更新
+      });
+    }
+  };
+
+  const triggerUpdate = () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(fetchAndSetConfig, 200);
+  };
+
+  // 注册全局监听器
+  const offConfigChange = dashboard.onConfigChange(triggerUpdate);
+  const offDataChange = dashboard.onDataChange(triggerUpdate);
+
+  return () => {
+    clearTimeout(debounceTimer);
+    offConfigChange();
+    offDataChange();
+  };
+}, []); // 依赖项为空，确保只注册一次
+```
+
+### 3. 架构优化：分离数据逻辑与 UI 状态
+
+**问题**：在 `App.tsx` (UI层) 中根据 `state` 来计算要传递给 `useData` 的 `props`，导致 `useData` 的依赖项不稳定，从而引发二次刷新。
+
+**错误代码**:
+```typescript
+// ❌ 错误示范：在 App.tsx 中根据 state 计算 options
+const options = state === 'view' ? config.options : liveOptions;
+const { data } = useData(config, state, options); // state 和 options 都会在保存后变化，触发两次 effect
+```
+
+**正确架构**：让 `useData` hook 成为数据处理的唯一权威，UI 层只负责传递“原材料”。
+
+-   **`App.tsx`**：只负责传递原始材料 (`config`, `state`, `liveOptions`)。
+-   **`useData` 内部**：根据传入的 `state` 来决定是使用 `liveOptions` 还是 `config.options`。
+-   **`useData` 的 `useEffect`**：其依赖项中**不包含** `state`，只包含 `config` 和 `liveOptions` 等“数据”依赖。
+-   **`useData` 的返回值**：同时返回 `data` 和最终用于渲染的 `finalOptions`，供 `BubbleChart` 组件消费。
+
+**清晰的数据流**: `App.tsx` -> `useData(原始材料)` -> `(返回 {data, finalOptions})` -> `BubbleChart(data, finalOptions)`
+
+### 4. 健壮性：为 `dataConditions` 选择正确的 `Rollup` 策略
+
+**原则**：`saveConfig` 中 `dataConditions` 的 `rollup` 策略会影响飞书后端对数据变化的侦测，进而影响 `onDataChange` 的触发。
+
+**最佳实践**：
+-   **数值类型字段**：使用求和 `Rollup.SUM`。
+-   **类目类型字段**：应使用计数类聚合，例如 `Rollup.COUNT_ALL`（**注意**：请查阅最新版 SDK 文档确认准确的枚举值，`COUNTA` 和 `COUNT` 都可能是错误的）。
+-   **教训**：错误或不匹配的 `Rollup` 策略可能导致 `onDataChange` 在表格数据更新后不触发，是我们之前遇到的“不刷新”问题的潜在原因之一。

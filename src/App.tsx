@@ -25,7 +25,7 @@
  * - 子组件（BubbleChart）
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Button, Typography, Select } from '@douyinfe/semi-ui'
 import { dashboard, Rollup, type ISeries } from '@lark-base-open/js-sdk'
 import { useDashboard, useTables, useFields, type BubbleChartConfig } from './hooks/useDashboard'
@@ -105,7 +105,6 @@ function App() {
 
   // 当前配置状态（数据源、字段选择等）
   const [config, setConfig] = useState<BubbleChartConfig>({})
-  const lastUpdateTimeRef = useRef(0);
 
   // 根据选中的数据源表，获取数字字段、文本字段和类目字段列表
   const { numericFields, textFields, categoryFields, loading: fieldsLoading } = useFields(config.dataSource)
@@ -150,53 +149,77 @@ function App() {
     loadInitialConfig()
   }, [])
 
+
   /**
-   * useEffect: 全局事件监听
-   * 修复：确保在组件挂载后立刻开始监听，并为刷新逻辑添加防抖，防止重复执行
+   * useEffect: 全局事件监听 (真正的防抖 + 深度比对)
+   * 修复：
+   * 1. 使用 setTimeout 实现后置防抖，合并短时间内的多次事件
+   * 2. 使用 JSON.stringify 进行内容比对，避免相同配置导致的重复渲染
    */
   useEffect(() => {
-    const DEBOUNCE_TIME = 500; // ms
+    let debounceTimer: number | undefined;
 
-    // 定义通用的更新函数
-    const updateConfig = async () => {
-      const now = Date.now();
-      if (now - lastUpdateTimeRef.current < DEBOUNCE_TIME) {
-        console.log('[App] 刷新事件过于频繁，已忽略');
-        return;
-      }
-      lastUpdateTimeRef.current = now;
-
-      console.log('[App] 收到变更通知，准备刷新配置')
+    // 1. 核心更新逻辑
+    const fetchAndSetConfig = async () => {
       try {
-        // 无论当前本地 state 是什么，直接获取最新的权威配置
+        // console.log('[App] 防抖等待结束，开始获取配置...')
         const savedConfig = await dashboard.getConfig()
+        
         if (savedConfig.customConfig) {
-          console.log('[App] 获取到最新配置，更新状态')
-          setConfig(savedConfig.customConfig as BubbleChartConfig)
+          const newConfig = savedConfig.customConfig as BubbleChartConfig
+          
+          // 【关键修复】函数式更新 + 深度比对
+          // 只有当新配置和旧配置的内容真正不同时，才更新 state
+          setConfig(prevConfig => {
+            if (JSON.stringify(prevConfig) === JSON.stringify(newConfig)) {
+              console.log('[App] 配置内容无变化，跳过视图更新')
+              return prevConfig // 返回旧对象，React 会完全跳过这次渲染
+            }
+            console.log('[App] 配置有变化，执行更新')
+            return newConfig
+          })
         }
       } catch (error) {
         console.error('[App] 获取配置失败:', error)
       }
     }
 
-    // 1. 监听配置变化 (最核心修复：解决混合轴切换不刷新的问题)
+    // 2. 防抖触发器 (Trailing Edge)
+    // 收到事件不马上做，而是设定一个延时。如果延时内又有事件，就重置延时。
+    const triggerUpdate = () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer)
+      }
+      
+      // 200ms 的窗口期足以覆盖 onConfigChange 和 onDataChange 的间隔
+      debounceTimer = window.setTimeout(() => {
+        fetchAndSetConfig()
+      }, 200)
+    }
+
+    // 3. 注册监听
+    console.log('[App] 注册全局事件监听器')
+    
     const offConfigChange = dashboard.onConfigChange(() => {
-      console.log('[App] onConfigChange 触发')
-      updateConfig()
+      console.log('[App] 收到 onConfigChange -> 进入防抖队列')
+      triggerUpdate()
     })
 
-    // 2. 监听数据变化 (感知表格内容修改)
     const offDataChange = dashboard.onDataChange(() => {
-      console.log('[App] onDataChange 触发')
-      updateConfig()
+      console.log('[App] 收到 onDataChange -> 进入防抖队列')
+      triggerUpdate()
     })
 
-    // 组件卸载时取消监听
+    // 4. 清理
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
       offConfigChange()
       offDataChange()
     }
-  }, []) // 依赖数组为空，只在挂载时注册一次
+  }, [])
+
+
+
 
   /**
    * handleConfigChange - 处理配置字段变化
@@ -242,17 +265,7 @@ function App() {
 
     const { dataSource, xField, yField, sizeField, nameField } = latestConfig
 
-    // 优化：根据字段类型选择聚合方式
-    // 类目轴用 COUNTA (计数)，数值轴用 SUM (求和)
-    // 这样能确保飞书后端能感知到数据的有效变化
-    const getRollupType = (fieldType?: 'number' | 'category') => {
-      return fieldType === 'category' ? Rollup.COUNTA : Rollup.SUM
-    }
-
-    const series: ISeries[] = [
-      { fieldId: xField, rollup: getRollupType(latestConfig.xFieldType) },
-      { fieldId: yField, rollup: getRollupType(latestConfig.yFieldType) }
-    ]
+    const series: ISeries[] = [{ fieldId: xField, rollup: Rollup.SUM }, { fieldId: yField, rollup: Rollup.SUM }]
 
     if (sizeField) {
       series.push({ fieldId: sizeField, rollup: Rollup.SUM }) // sizeField 总是数值类型
