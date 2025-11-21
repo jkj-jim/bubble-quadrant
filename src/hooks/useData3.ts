@@ -94,8 +94,30 @@ const processNumericValue = (value: any): number => {
     return value
   }
 
-  // 转换为字符串并解析为浮点数
-  const floatValue = parseFloat(String(value))
+  // 如果是对象（如公式字段可能返回 { value: 123 } 或其他结构），尝试提取值
+  if (typeof value === 'object') {
+    if (Array.isArray(value) && value.length > 0) {
+      return processNumericValue(value[0])
+    }
+    // 优先检查 value 属性
+    if (value.value !== undefined) {
+      return processNumericValue(value.value)
+    }
+    // 尝试转换为字符串再解析
+    return parseFloat(String(value)) || 0
+  }
+
+  // 转换为字符串并去除首尾空格
+  const strValue = String(value).trim()
+
+  // 处理百分比（如 "9%" -> 0.09）
+  if (strValue.endsWith('%')) {
+    const floatValue = parseFloat(strValue)
+    return isNaN(floatValue) ? 0 : floatValue / 100
+  }
+
+  // 解析为浮点数
+  const floatValue = parseFloat(strValue)
 
   // 如果解析失败（NaN），返回 0
   return isNaN(floatValue) ? 0 : floatValue
@@ -143,6 +165,8 @@ export const useData3 = (
   const [loading, setLoading] = useState(false)
   const [finalXOptions, setFinalXOptions] = useState<string[] | undefined>()
   const [finalYOptions, setFinalYOptions] = useState<string[] | undefined>()
+  const [resolvedXType, setResolvedXType] = useState<'number' | 'category'>('number')
+  const [resolvedYType, setResolvedYType] = useState<'number' | 'category'>('number')
 
   useEffect(() => {
     const fetchData = async (currentConfig: BubbleChartConfig) => {
@@ -180,14 +204,41 @@ export const useData3 = (
 
         // 核心逻辑：在 hook 内部根据 state 决定使用哪个 options
         // view 状态优先用 config 中存的权威数据，config 状态用实时获取的 live 数据
-        const xOptions = state === 'view' || state === 'fullscreen'
-            ? (currentConfig.xFieldOptions || liveXFieldOptions)
-            : liveXFieldOptions
+        // view 状态优先用 config 中存的权威数据，config 状态用实时获取的 live 数据
+        let xOptions = state === 'view' || state === 'fullscreen'
+          ? (currentConfig.xFieldOptions || liveXFieldOptions)
+          : liveXFieldOptions
 
-        const yOptions = state === 'view' || state === 'fullscreen'
-            ? (currentConfig.yFieldOptions || liveYFieldOptions)
-            : liveYFieldOptions
-        
+        let yOptions = state === 'view' || state === 'fullscreen'
+          ? (currentConfig.yFieldOptions || liveYFieldOptions)
+          : liveYFieldOptions
+
+        // 自动检测字段类型（如果未指定）
+        const effectiveXType = xFieldType || detectFieldType(records, xField)
+        const effectiveYType = yFieldType || detectFieldType(records, yField)
+
+        setResolvedXType(effectiveXType)
+        setResolvedYType(effectiveYType)
+
+        // 动态收集类目选项（针对公式字段或缺少选项的情况）
+        if (effectiveXType === 'category' && (!xOptions || xOptions.length === 0)) {
+          const uniqueValues = new Set<string>()
+          records.forEach(record => {
+            const val = extractTextFromField(record.fields[xField])
+            if (val) uniqueValues.add(val)
+          })
+          xOptions = Array.from(uniqueValues).sort()
+        }
+
+        if (effectiveYType === 'category' && (!yOptions || yOptions.length === 0)) {
+          const uniqueValues = new Set<string>()
+          records.forEach(record => {
+            const val = extractTextFromField(record.fields[yField])
+            if (val) uniqueValues.add(val)
+          })
+          yOptions = Array.from(uniqueValues).sort()
+        }
+
         // 将最终使用的 options 保存到 state 中，以便返回给 UI 层
         setFinalXOptions(xOptions)
         setFinalYOptions(yOptions)
@@ -214,8 +265,8 @@ export const useData3 = (
             xField,
             yField,
             sizeField,
-            xFieldType,
-            yFieldType,
+            effectiveXType,
+            effectiveYType,
             xOptions, // 使用这里计算出的 options
             yOptions  // 使用这里计算出的 options
           )
@@ -245,7 +296,52 @@ export const useData3 = (
     liveYFieldOptions,
   ]) // 关键：依赖项不包含 state，因此 state 的变化不会直接触发数据重获取
 
-  return { data, loading, finalXOptions, finalYOptions }
+  return { data, loading, finalXOptions, finalYOptions, resolvedXType, resolvedYType }
+}
+
+/**
+ * detectFieldType - 自动检测字段类型
+ * 功能：根据数据内容判断字段是数值型还是类目型
+ */
+const detectFieldType = (records: any[], fieldId: string): 'number' | 'category' => {
+  // 检查前 10 条非空记录
+  let checkCount = 0
+  let numberCount = 0
+
+  for (const record of records) {
+    if (checkCount >= 10) break
+
+    const val = record.fields[fieldId]
+    if (val === null || val === undefined || val === '') continue
+
+    checkCount++
+
+    // 尝试判断是否为数字
+    let isNum = false
+    if (typeof val === 'number') {
+      isNum = true
+    } else if (typeof val === 'object') {
+      // 公式可能返回 { value: 123 }
+      if (val.value !== undefined && typeof val.value === 'number') {
+        isNum = true
+      }
+    } else if (typeof val === 'string') {
+      // 尝试解析字符串数字
+      if (!isNaN(parseFloat(val))) {
+        isNum = true
+      }
+    }
+
+    if (isNum) numberCount++
+  }
+
+  // 如果大部分（>50%）是数字，则认为是数值轴
+  if (checkCount > 0 && (numberCount / checkCount) > 0.5) {
+    return 'number'
+  }
+
+  // 默认为类目轴
+  return 'category'
 }
 
 /**

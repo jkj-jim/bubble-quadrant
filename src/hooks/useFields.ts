@@ -34,6 +34,7 @@ const NUMBER_FIELD_TYPES = [
   FieldType.Currency,     // 货币
   FieldType.Progress,     // 进度
   FieldType.Rating,       // 评分
+  FieldType.Formula,      // 公式
 ]
 
 /**
@@ -59,6 +60,7 @@ const TEXT_FIELD_TYPES = [
  */
 const CATEGORY_FIELD_TYPES = [
   FieldType.SingleSelect, // 单选 - 作为类目轴的主要类型
+  FieldType.Formula,      // 公式 - 可能返回字符串
 ]
 
 /**
@@ -122,17 +124,45 @@ export const useFields = (tableId?: string) => {
 
         // 遍历所有字段，按类型分类
         fieldMetas.forEach(meta => {
+          // 检查公式字段是否为数值类型（通过 formatter 判断）
+          let isNumericFormula = false
+          let isPercentage = false
+          if (meta.type === FieldType.Formula) {
+            // @ts-ignore - property 类型定义可能不完整
+            const formatter = meta.property?.formatter
+            // 如果有 formatter，通常意味着是数字或日期（这里我们主要关注数字）
+            // 简单的判断：只要有 formatter 就视为数值优先
+            if (formatter) {
+              isNumericFormula = true
+              if (typeof formatter === 'string' && formatter.includes('%')) {
+                isPercentage = true
+              }
+            }
+          }
+
           const fieldInfo: FieldInfo = {
             id: meta.id,
             name: meta.name,
             type: meta.type,
-            isCategory: CATEGORY_FIELD_TYPES.includes(meta.type)
+            isCategory: CATEGORY_FIELD_TYPES.includes(meta.type),
+            isFormula: meta.type === FieldType.Formula,
+            isNumericFormula,
+            isPercentage
           }
 
           allFields.push(fieldInfo)
 
           // 分类字段：数字类型、文本类型、类目类型
           if (NUMBER_FIELD_TYPES.includes(meta.type)) {
+            // 对于普通数字字段，也检查是否为百分比格式
+            if (meta.type === FieldType.Number && !isPercentage) {
+              // @ts-ignore
+              const formatter = meta.property?.formatter
+              if (typeof formatter === 'string' && formatter.includes('%')) {
+                // 需要更新 fieldInfo 中的 isPercentage
+                fieldInfo.isPercentage = true
+              }
+            }
             numeric.push(fieldInfo)  // 数字字段：可用于x/y/size
           }
           if (TEXT_FIELD_TYPES.includes(meta.type)) {

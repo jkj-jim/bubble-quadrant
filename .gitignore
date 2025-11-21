@@ -29,6 +29,7 @@ backup/*
 claude.md
 gemini.md
 .gemini/*
+.agent/*
 他人建议.md
 suggestions.md
 需求.md

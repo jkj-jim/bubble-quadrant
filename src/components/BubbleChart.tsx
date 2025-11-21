@@ -38,6 +38,8 @@ export interface BubbleChartProps {
   yAxisType?: 'value' | 'category'  // 纵轴类型（数值/类目）
   xAxisData?: string[]      // 横轴类目选项列表
   yAxisData?: string[]      // 纵轴类目选项列表
+  xIsPercentage?: boolean   // 横轴是否为百分比格式
+  yIsPercentage?: boolean   // 纵轴是否为百分比格式
 }
 
 /**
@@ -58,6 +60,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   yAxisType = 'value',  // 默认为数值轴，向后兼容
   xAxisData,
   yAxisData,
+  xIsPercentage,
+  yIsPercentage,
 }) => {
   // chartRef: ECharts容器DOM元素引用
   const chartRef = useRef<HTMLDivElement>(null)
@@ -102,8 +106,19 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       nameLocation: 'end',
       nameGap: 10,
       splitLine: {
+        show: true,
         lineStyle: {
-          color: '#f0f0f0'
+          type: 'dashed'
+        }
+      },
+      axisLabel: {
+        formatter: (value: any) => {
+          if (xIsPercentage && typeof value === 'number') {
+            // 智能百分比格式：去除末尾多余的零
+            // 例如：0.09 -> 9%，0.095 -> 9.5%
+            return parseFloat((value * 100).toFixed(2)) + '%'
+          }
+          return value
         }
       }
     }
@@ -123,8 +138,18 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       nameLocation: 'end',
       nameGap: 10,
       splitLine: {
+        show: true,
         lineStyle: {
-          color: '#f0f0f0'
+          type: 'dashed'
+        }
+      },
+      axisLabel: {
+        formatter: (value: any) => {
+          if (yIsPercentage && typeof value === 'number') {
+            // 智能百分比格式：去除末尾多余的零
+            return parseFloat((value * 100).toFixed(2)) + '%'
+          }
+          return value
         }
       }
     }
@@ -142,26 +167,26 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     const seriesData = data.map(item => {
       // X轴值处理
       let xValue: number | string
-      let xDisplay: string
+      let xDisplay: number | string
 
       if (xAxisType === 'category' && item.xCategoryIndex !== undefined) {
         xValue = item.xCategoryIndex  // 使用索引，ECharts会自动映射到类目
         xDisplay = String(item.x)     // 显示原始文本
       } else {
         xValue = item.x as number
-        xDisplay = String(item.x)
+        xDisplay = item.x
       }
 
       // Y轴值处理
       let yValue: number | string
-      let yDisplay: string
+      let yDisplay: number | string
 
       if (yAxisType === 'category' && item.yCategoryIndex !== undefined) {
         yValue = item.yCategoryIndex  // 使用索引
         yDisplay = String(item.y)     // 显示原始文本
       } else {
         yValue = item.y as number
-        yDisplay = String(item.y)
+        yDisplay = item.y
       }
 
       return {
@@ -191,12 +216,25 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         trigger: 'item',
         formatter: (params: any) => {
           const data = params.data
+          // 使用 data.data 获取原始显示值（避免类目轴显示索引）
+          let xDisplay = data.data ? data.data[0] : data.value[0]
+          let yDisplay = data.data ? data.data[1] : data.value[1]
+          const sizeDisplay = data.data ? data.data[2] : data.value[2]
+
+          // 格式化百分比显示
+          if (xIsPercentage && typeof xDisplay === 'number') {
+            xDisplay = parseFloat((xDisplay * 100).toFixed(2)) + '%'
+          }
+          if (yIsPercentage && typeof yDisplay === 'number') {
+            yDisplay = parseFloat((yDisplay * 100).toFixed(2)) + '%'
+          }
+
           return `
             <div style="padding: 8px;">
               ${data.name ? `<div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>` : ''}
-              <div>${xFieldName || 'X'}: ${data.value[0]}</div>
-              <div>${yFieldName || 'Y'}: ${data.value[1]}</div>
-              <div>${sizeFieldName || '大小'}: ${data.value[2]}</div>
+              <div>${xFieldName || 'X'}: ${xDisplay}</div>
+              <div>${yFieldName || 'Y'}: ${yDisplay}</div>
+              <div>${sizeFieldName || '大小'}: ${sizeDisplay}</div>
             </div>
           `
         }
@@ -222,7 +260,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
 
     chartInstanceRef.current.setOption(option)
-  }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData])
+  }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData, xIsPercentage, yIsPercentage])
 
   useEffect(() => {
     const handleResize = () => {

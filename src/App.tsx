@@ -107,7 +107,7 @@ function App() {
   const [config, setConfig] = useState<BubbleChartConfig>({})
 
   // 根据选中的数据源表，获取数字字段、文本字段和类目字段列表
-  const { numericFields, textFields, categoryFields, loading: fieldsLoading } = useFields(config.dataSource)
+  const { fields, numericFields, textFields, categoryFields, loading: fieldsLoading } = useFields(config.dataSource)
 
   // 获取横轴字段的选项（如果是单选字段）
   // 重要：无论xFieldType是什么，都尝试获取选项。如果字段不是单选，useFieldOptions会返回空数组
@@ -126,8 +126,8 @@ function App() {
   )
 
   // 根据当前配置获取和处理气泡图数据
-  // useData hook 现在会返回 data 和最终用于渲染的 options
-  const { data, loading: dataLoading, finalXOptions, finalYOptions } = useData(config, state, liveXFieldOptions, liveYFieldOptions)
+  // useData hook 现在会返回 data 和最终用于渲染的 options，以及自动检测出的轴类型
+  const { data, loading: dataLoading, finalXOptions, finalYOptions, resolvedXType, resolvedYType } = useData(config, state, liveXFieldOptions, liveYFieldOptions)
 
   /**
    * useEffect: 组件挂载时加载已保存的配置（初始化）
@@ -164,10 +164,10 @@ function App() {
       try {
         // console.log('[App] 防抖等待结束，开始获取配置...')
         const savedConfig = await dashboard.getConfig()
-        
+
         if (savedConfig.customConfig) {
           const newConfig = savedConfig.customConfig as BubbleChartConfig
-          
+
           // 【关键修复】函数式更新 + 深度比对
           // 只有当新配置和旧配置的内容真正不同时，才更新 state
           setConfig(prevConfig => {
@@ -190,7 +190,7 @@ function App() {
       if (debounceTimer) {
         clearTimeout(debounceTimer)
       }
-      
+
       // 200ms 的窗口期足以覆盖 onConfigChange 和 onDataChange 的间隔
       debounceTimer = window.setTimeout(() => {
         fetchAndSetConfig()
@@ -199,7 +199,7 @@ function App() {
 
     // 3. 注册监听
     console.log('[App] 注册全局事件监听器')
-    
+
     const offConfigChange = dashboard.onConfigChange(() => {
       console.log('[App] 收到 onConfigChange -> 进入防抖队列')
       triggerUpdate()
@@ -235,16 +235,29 @@ function App() {
 
       // 当横轴字段变化时，检测字段类型
       if (key === 'xField' && stringValue) {
-        const isCategory = categoryFields.some(f => f.id === stringValue)
-        // console.log('[App] xField修改为:', stringValue, '类型:', isCategory ? '类目' : '数值')
-        newConfig.xFieldType = isCategory ? 'category' : 'number'
+        const field = fields.find(f => f.id === stringValue)
+        if (field) {
+          // 如果是公式字段，不设置 xFieldType，让 useData 自动检测
+          if (field.isFormula) {
+            delete newConfig.xFieldType
+          } else {
+            // 否则根据是否为类目字段决定
+            newConfig.xFieldType = field.isCategory ? 'category' : 'number'
+          }
+        }
       }
 
       // 当纵轴字段变化时，检测字段类型
       if (key === 'yField' && stringValue) {
-        const isCategory = categoryFields.some(f => f.id === stringValue)
-        // console.log('[App] yField修改为:', stringValue, '类型:', isCategory ? '类目' : '数值')
-        newConfig.yFieldType = isCategory ? 'category' : 'number'
+        const field = fields.find(f => f.id === stringValue)
+        if (field) {
+          // 如果是公式字段，不设置 yFieldType，让 useData 自动检测
+          if (field.isFormula) {
+            delete newConfig.yFieldType
+          } else {
+            newConfig.yFieldType = field.isCategory ? 'category' : 'number'
+          }
+        }
       }
 
       return newConfig
@@ -306,13 +319,33 @@ function App() {
 
     // 辅助函数：合并数字字段和类目字段，并标注字段类型
     const getCombinedFieldsWithType = () => {
-      const allFields = [...numericFields, ...categoryFields]
-      return allFields.map(field => {
+      // 使用 Map 去重
+      const fieldMap = new Map()
+
+      // 添加数字字段
+      numericFields.forEach(f => fieldMap.set(f.id, f))
+      // 添加类目字段
+      categoryFields.forEach(f => fieldMap.set(f.id, f))
+
+      return Array.from(fieldMap.values()).map(field => {
         const isCategory = categoryFields.some(f => f.id === field.id)
+        const isNumeric = numericFields.some(f => f.id === field.id)
+
+        let typeLabel = ''
+        if (field.isFormula) {
+          typeLabel = `${field.name}（公式）`
+        } else if (isCategory && isNumeric) {
+          typeLabel = `${field.name}（数值/类目）`
+        } else if (isCategory) {
+          typeLabel = `${field.name}（类目）`
+        } else {
+          typeLabel = `${field.name}（数值）`
+        }
+
         return {
           id: field.id,
           name: field.name,
-          typeLabel: isCategory ? `${field.name}（类目）` : `${field.name}（数值）`
+          typeLabel: typeLabel
         }
       })
     }
@@ -329,10 +362,12 @@ function App() {
             yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
             sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}
             loading={dataLoading}
-            xAxisType={config.xFieldType === 'category' ? 'category' : 'value'}
-            yAxisType={config.yFieldType === 'category' ? 'category' : 'value'}
+            xAxisType={resolvedXType === 'number' ? 'value' : 'category'}
+            yAxisType={resolvedYType === 'number' ? 'value' : 'category'}
             xAxisData={finalXOptions}
             yAxisData={finalYOptions}
+            xIsPercentage={fields.find(f => f.id === config.xField)?.isPercentage}
+            yIsPercentage={fields.find(f => f.id === config.yField)?.isPercentage}
           />
         </div>
       )
@@ -354,10 +389,12 @@ function App() {
               yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
               sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}
               loading={dataLoading}
-              xAxisType={config.xFieldType === 'category' ? 'category' : 'value'}
-              yAxisType={config.yFieldType === 'category' ? 'category' : 'value'}
+              xAxisType={resolvedXType === 'number' ? 'value' : 'category'}
+              yAxisType={resolvedYType === 'number' ? 'value' : 'category'}
               xAxisData={finalXOptions}
               yAxisData={finalYOptions}
+              xIsPercentage={fields.find(f => f.id === config.xField)?.isPercentage}
+              yIsPercentage={fields.find(f => f.id === config.yField)?.isPercentage}
             />
           </div>
         </div>
@@ -405,6 +442,7 @@ function App() {
                   placeholder="选择字段"
                 />
 
+
                 {/* 纵轴：必选，支持数字字段和单选字段（类目） */}
                 <FieldSelect
                   label="纵轴（必选）"
@@ -414,6 +452,7 @@ function App() {
                   loading={fieldsLoading}
                   placeholder="选择字段"
                 />
+
 
                 {/* 气泡大小：选填，必须为数字字段 */}
                 <FieldSelect

@@ -67,6 +67,9 @@ export interface FieldInfo {
   name: string
   type: any
   isCategory?: boolean  // 是否支持类目轴（单选字段）
+  isFormula?: boolean   // 是否为公式字段
+  isNumericFormula?: boolean // 是否为数值类型的公式（通过 formatter 判断）
+  isPercentage?: boolean // 是否为百分比格式
 }
 
 /**
