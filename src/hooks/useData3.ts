@@ -243,39 +243,52 @@ export const useData3 = (
         setFinalXOptions(xOptions)
         setFinalYOptions(yOptions)
 
-        const groups: Record<string, any[]> = {}
+        const processedData: DataItem[] = []
+
         if (nameField) {
+          // 有气泡名称：
+          // 1. 过滤掉没有名称的数据
+          // 2. 不分组聚合，直接显示每一条数据
           for (const record of records) {
             const nameVal = record.fields[nameField]
             const name = extractTextFromField(nameVal)
-            if (!groups[name]) {
-              groups[name] = []
+
+            // 如果名称为空，跳过该条数据
+            if (!name) continue
+
+            const item = processGroupRecords(
+              [record], // 单条记录处理
+              xField,
+              yField,
+              sizeField,
+              effectiveXType,
+              effectiveYType,
+              xOptions,
+              yOptions
+            )
+
+            if (item) {
+              item.name = name
+              processedData.push(item)
             }
-            groups[name].push(record)
           }
         } else {
-          groups[''] = records
-        }
+          // 无气泡名称：显示所有数据点
+          for (const record of records) {
+            const item = processGroupRecords(
+              [record],
+              xField,
+              yField,
+              sizeField,
+              effectiveXType,
+              effectiveYType,
+              xOptions,
+              yOptions
+            )
 
-        const processedData: DataItem[] = []
-
-        for (const [groupName, groupRecords] of Object.entries(groups)) {
-          const item = processGroupRecords(
-            groupRecords,
-            xField,
-            yField,
-            sizeField,
-            effectiveXType,
-            effectiveYType,
-            xOptions, // 使用这里计算出的 options
-            yOptions  // 使用这里计算出的 options
-          )
-
-          if (item) {
-            if (groupName) {
-              item.name = groupName
+            if (item) {
+              processedData.push(item)
             }
-            processedData.push(item)
           }
         }
 
@@ -402,7 +415,7 @@ const processGroupRecords = (
       return {
         x: xSum,
         y: ySum,
-        size: sizeField ? sizeSum : 20,
+        size: sizeField ? sizeSum : 10,
       }
     }
   }
@@ -444,7 +457,7 @@ const processGroupRecords = (
         return {
           x: xCategory.original,
           y: ySum,
-          size: sizeField ? sizeSum : 20,
+          size: sizeField ? sizeSum : 10,
           xCategoryIndex: xCategory.index,
         }
       }
@@ -488,7 +501,7 @@ const processGroupRecords = (
         return {
           x: xSum,
           y: yCategory.original,
-          size: sizeField ? sizeSum : 20,
+          size: sizeField ? sizeSum : 10,
           yCategoryIndex: yCategory.index,
         }
       }
@@ -523,7 +536,7 @@ const processGroupRecords = (
       return {
         x: xCategory.original,
         y: yCategory.original,
-        size: sizeField ? sizeSum : 20,
+        size: sizeField ? sizeSum : 10,
         xCategoryIndex: xCategory.index,
         yCategoryIndex: yCategory.index,
       }

@@ -1,6 +1,5 @@
 # 飞书仪表盘插件开发 - 经验总结
-
-> 总结开发飞书多维表格仪表盘插件过程中的踩坑点和验证有效的实践
+> 总结开发飞书多维表格仪表盘插件过程中的踩坑点和验证有效的实践，描述尽量简洁，但又要触及问题的本质
 > 更新日期：2025-11-13
 
 ## 🚀 两种核心开发模式
@@ -385,3 +384,48 @@ const { data } = useData(config, state, options); // state 和 options 都会在
 -   **数值类型字段**：使用求和 `Rollup.SUM`。
 -   **类目类型字段**：应使用计数类聚合，例如 `Rollup.COUNT_ALL`（**注意**：请查阅最新版 SDK 文档确认准确的枚举值，`COUNTA` 和 `COUNT` 都可能是错误的）。
 -   **教训**：错误或不匹配的 `Rollup` 策略可能导致 `onDataChange` 在表格数据更新后不触发，是我们之前遇到的“不刷新”问题的潜在原因之一。
+
+---
+
+## 🧪 公式字段与数据展示优化（2025-11-22）
+
+在支持公式字段和优化气泡图展示效果时，我们总结了以下关键经验：
+
+### 1. 公式字段的类型识别
+
+**问题**：公式字段（`FieldType.Formula`）的返回值类型是不确定的，可能是数字、文本、布尔值甚至对象。简单地通过 `type === FieldType.Number` 无法识别出数值类型的公式。
+
+**解决方案**：
+- **检查 `formatter` 属性**：飞书 SDK 返回的字段元数据中，数值类型的公式通常带有 `formatter` 属性（例如数字格式、百分比格式）。
+- **动态检测数据内容**：在无法通过元数据判断时，读取前几条数据的内容进行推断。
+
+```typescript
+// 识别数值公式
+if (meta.type === FieldType.Formula) {
+  // 带有 formatter 属性通常意味着是数值或日期
+  if (meta.property?.formatter) {
+    isNumericFormula = true;
+    // 进一步检查是否为百分比
+    if (typeof formatter === 'string' && formatter.includes('%')) {
+      isPercentage = true;
+    }
+  }
+}
+```
+
+### 2. 百分比数值的陷阱
+
+**问题**：飞书中的百分比字段，其底层存储的是小数（如 `0.09`），但用户期望看到的是 `9%`。
+
+**解决方案**：
+- **数据层**：保持数值类型（`0.09`），以便进行坐标轴的数值计算和排序。
+- **展示层**：在 Axis Label 和 Tooltip 中进行格式化。
+- **智能识别**：通过字段的 `formatter` 属性自动识别百分比字段，无需用户手动配置。
+
+```typescript
+// Tooltip formatter
+if (isPercentage) {
+  // 乘以 100 并保留两位小数，再加 %
+  displayValue = parseFloat((value * 100).toFixed(2)) + '%';
+}
+```

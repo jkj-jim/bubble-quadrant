@@ -26,7 +26,8 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Button, Typography, Select } from '@douyinfe/semi-ui'
+import { Button, Typography, Select, Tooltip } from '@douyinfe/semi-ui'
+import { IconIssueStroked } from '@douyinfe/semi-icons'
 import { dashboard, Rollup, type ISeries } from '@lark-base-open/js-sdk'
 import { useDashboard, useTables, useFields, type BubbleChartConfig } from './hooks/useDashboard'
 import { useFieldOptions } from './hooks/useFieldOptions'
@@ -60,25 +61,47 @@ const FieldSelect: React.FC<{
   fields: Array<{ id: string; name: string; typeLabel?: string }>
   loading?: boolean
   placeholder?: string
-}> = ({ label, value, onChange, fields, loading, placeholder }) => (
-  <div style={{ marginBottom: '20px' }}>
-    <Text strong style={{ display: 'block', marginBottom: 8 }}>{label}：</Text>
-    <Select
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder || '请选择字段'}
-      style={{ width: '100%' }}
-      loading={loading}
-      filter
-    >
-      {fields.map(field => (
-        <Select.Option key={field.id} value={field.id}>
-          {field.typeLabel || field.name}
-        </Select.Option>
-      ))}
-    </Select>
-  </div>
-)
+  showClear?: boolean
+  tooltip?: string
+}> = ({ label, value, onChange, fields, loading, placeholder, showClear = false, tooltip }) => {
+  return (
+    <div style={{ marginBottom: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <Text strong>{label}：</Text>
+          {tooltip && (
+            <Tooltip content={tooltip}>
+              <IconIssueStroked style={{ color: 'var(--semi-color-text-2)', marginLeft: 4, cursor: 'help' }} />
+            </Tooltip>
+          )}
+        </div>
+        {showClear && value && (
+          <Text
+            type="secondary"
+            style={{ cursor: 'pointer', fontSize: '12px', userSelect: 'none' }}
+            onClick={() => onChange(undefined)}
+          >
+            清除
+          </Text>
+        )}
+      </div>
+      <Select
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder || '请选择字段'}
+        style={{ width: '100%' }}
+        loading={loading}
+        filter
+      >
+        {fields.map(field => (
+          <Select.Option key={field.id} value={field.id}>
+            {field.typeLabel || field.name}
+          </Select.Option>
+        ))}
+      </Select>
+    </div>
+  )
+}
 
 /**
  * App - 主应用组件
@@ -368,6 +391,7 @@ function App() {
             yAxisData={finalYOptions}
             xIsPercentage={fields.find(f => f.id === config.xField)?.isPercentage}
             yIsPercentage={fields.find(f => f.id === config.yField)?.isPercentage}
+            sizeIsPercentage={fields.find(f => f.id === config.sizeField)?.isPercentage}
           />
         </div>
       )
@@ -395,6 +419,7 @@ function App() {
               yAxisData={finalYOptions}
               xIsPercentage={fields.find(f => f.id === config.xField)?.isPercentage}
               yIsPercentage={fields.find(f => f.id === config.yField)?.isPercentage}
+              sizeIsPercentage={fields.find(f => f.id === config.sizeField)?.isPercentage}
             />
           </div>
         </div>
@@ -454,14 +479,15 @@ function App() {
                 />
 
 
-                {/* 气泡大小：选填，必须为数字字段 */}
+                {/* 气泡大小：可选，仅支持数值类型（包括数值公式） */}
                 <FieldSelect
-                  label="气泡大小（选填）"
+                  label="气泡大小（可选）"
                   value={config.sizeField}
                   onChange={(value) => handleConfigChange('sizeField', value)}
-                  fields={numericFields}
+                  fields={numericFields.filter(f => f.type !== 3 || f.isNumericFormula)} // 3 is FieldType.Formula. Using literal or import if available. Better to use property check.
                   loading={fieldsLoading}
-                  placeholder="选择字段"
+                  placeholder="选择数值字段"
+                  showClear={true}
                 />
 
                 {/* 气泡名称：选填，必须为文本字段 */}
@@ -471,14 +497,16 @@ function App() {
                   onChange={(value) => handleConfigChange('nameField', value)}
                   fields={textFields}
                   loading={fieldsLoading}
-                  placeholder="选择字段"
+                  placeholder="选择文本字段"
+                  showClear={true}
+                  tooltip="如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据"
                 />
               </>
             )}
           </div>
 
           {/* 底部按钮区域：固定在底部 */}
-          <div style={{ height: '40px', padding: '16px 20px', borderTop: '1px solid #e0e0e0', background: '#ffffff' }}>
+          <div style={{ height: '40px', padding: '15px 20px', borderTop: '1px solid #e0e0e0', background: '#ffffff' }}>
             <Button
               type="primary"
               theme="solid"

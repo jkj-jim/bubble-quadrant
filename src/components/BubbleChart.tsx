@@ -40,6 +40,7 @@ export interface BubbleChartProps {
   yAxisData?: string[]      // 纵轴类目选项列表
   xIsPercentage?: boolean   // 横轴是否为百分比格式
   yIsPercentage?: boolean   // 纵轴是否为百分比格式
+  sizeIsPercentage?: boolean // 气泡大小是否为百分比格式
 }
 
 /**
@@ -62,6 +63,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   yAxisData,
   xIsPercentage,
   yIsPercentage,
+  sizeIsPercentage,
 }) => {
   // chartRef: ECharts容器DOM元素引用
   const chartRef = useRef<HTMLDivElement>(null)
@@ -105,13 +107,23 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       name: xFieldName || '横轴',
       nameLocation: 'end',
       nameGap: 10,
+      nameTextStyle: {
+        color: '#646A73'
+      },
       splitLine: {
         show: true,
         lineStyle: {
-          type: 'dashed'
+          type: 'dashed',
+          // color: '#D5D5D7'
+        }
+      },
+      axisLine: {
+        lineStyle: {
+          color: '#BBBFC4'
         }
       },
       axisLabel: {
+        color: '#8F959E',
         formatter: (value: any) => {
           if (xIsPercentage && typeof value === 'number') {
             // 智能百分比格式：去除末尾多余的零
@@ -137,13 +149,23 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       name: yFieldName || '纵轴',
       nameLocation: 'end',
       nameGap: 10,
+      nameTextStyle: {
+        color: '#646A73'
+      },
       splitLine: {
         show: true,
         lineStyle: {
-          type: 'dashed'
+          type: 'dashed',
+          // color: '#D5D5D7'
+        }
+      },
+      axisLine: {
+        lineStyle: {
+          color: '#BBBFC4'
         }
       },
       axisLabel: {
+        color: '#8F959E',
         formatter: (value: any) => {
           if (yIsPercentage && typeof value === 'number') {
             // 智能百分比格式：去除末尾多余的零
@@ -201,6 +223,13 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       }
     })
 
+    // 计算气泡大小的极值，用于线性映射
+    const sizes = data.map(item => item.size)
+    const minSize = Math.min(...sizes)
+    const maxSize = Math.max(...sizes)
+    const MIN_BUBBLE_SIZE = 8
+    const MAX_BUBBLE_SIZE = 80
+
     const option: EChartsOption = {
       backgroundColor: 'transparent',
       grid: {
@@ -219,7 +248,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           // 使用 data.data 获取原始显示值（避免类目轴显示索引）
           let xDisplay = data.data ? data.data[0] : data.value[0]
           let yDisplay = data.data ? data.data[1] : data.value[1]
-          const sizeDisplay = data.data ? data.data[2] : data.value[2]
+          let sizeDisplay: number | string = data.data ? data.data[2] : data.value[2]
 
           // 格式化百分比显示
           if (xIsPercentage && typeof xDisplay === 'number') {
@@ -228,13 +257,16 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           if (yIsPercentage && typeof yDisplay === 'number') {
             yDisplay = parseFloat((yDisplay * 100).toFixed(2)) + '%'
           }
+          if (sizeIsPercentage && typeof sizeDisplay === 'number') {
+            sizeDisplay = parseFloat((sizeDisplay * 100).toFixed(2)) + '%'
+          }
 
           return `
             <div style="padding: 8px;">
               ${data.name ? `<div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>` : ''}
               <div>${xFieldName || 'X'}: ${xDisplay}</div>
               <div>${yFieldName || 'Y'}: ${yDisplay}</div>
-              <div>${sizeFieldName || '大小'}: ${sizeDisplay}</div>
+              ${sizeFieldName ? `<div>${sizeFieldName}: ${sizeDisplay}</div>` : ''}
             </div>
           `
         }
@@ -243,9 +275,22 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         {
           type: 'scatter',
           symbolSize: (val: any) => {
-            // 根据第三个值(大小)决定气泡尺寸，最小10，最大80
-            const size = val[2] as number
-            return Math.max(10, Math.min(200, size))
+            // 如果没有配置大小字段，使用固定大小
+            if (!sizeFieldName) {
+              return 10
+            }
+
+            // 获取原始大小值
+            const sizeVal = val[2] as number
+
+            // 如果所有数据大小相同，返回中间大小
+            if (maxSize === minSize) {
+              return (MIN_BUBBLE_SIZE + MAX_BUBBLE_SIZE) / 2
+            }
+
+            // 线性映射公式: Pixel = MinPixel + (Val - MinVal) / (MaxVal - MinVal) * (MaxPixel - MinPixel)
+            const size = MIN_BUBBLE_SIZE + (sizeVal - minSize) / (maxSize - minSize) * (MAX_BUBBLE_SIZE - MIN_BUBBLE_SIZE)
+            return size
           },
           data: seriesData,
           emphasis: {
@@ -260,7 +305,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
 
     chartInstanceRef.current.setOption(option)
-  }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData, xIsPercentage, yIsPercentage])
+  }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData, xIsPercentage, yIsPercentage, sizeIsPercentage])
 
   useEffect(() => {
     const handleResize = () => {
