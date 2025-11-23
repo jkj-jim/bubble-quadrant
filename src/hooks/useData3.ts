@@ -180,6 +180,7 @@ export const useData3 = (
         nameField,
         xFieldType,
         yFieldType,
+        viewId, // 获取 viewId
       } = currentConfig
 
       if (!dataSource || !xField || !yField) {
@@ -193,7 +194,8 @@ export const useData3 = (
 
       try {
         const table = await bitable.base.getTable(dataSource)
-        const recordResult = await table.getRecords({})
+        // 如果 viewId 存在，则传入 viewId 进行过滤；否则传入空对象获取全部数据
+        const recordResult = await table.getRecords({ viewId: viewId || undefined })
 
         let records: any[] = []
         if (Array.isArray(recordResult)) {

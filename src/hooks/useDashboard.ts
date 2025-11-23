@@ -39,7 +39,7 @@ export type DashboardState = 'create' | 'config' | 'view' | 'fullscreen'
  * 支持数值轴和类目轴两种模式
  */
 export interface BubbleChartConfig {
-  [key: string]: string | string[] | undefined;
+  [key: string]: string | string[] | boolean | undefined;
   dataSource?: string      // 数据源表ID
   nameField?: string       // 气泡名称字段ID
   xField?: string          // 横轴字段ID
@@ -49,6 +49,8 @@ export interface BubbleChartConfig {
   yFieldType?: 'number' | 'category'  // 纵轴字段类型（数值/类目）
   xFieldOptions?: string[]  // 横轴字段选项列表（类目轴时使用）
   yFieldOptions?: string[]  // 纵轴字段选项列表（类目轴时使用）
+  viewId?: string           // 数据范围视图ID，undefined 表示全部数据
+  enableMultiColor?: boolean // 是否开启多彩模式
 }
 
 /**

@@ -41,6 +41,7 @@ export interface BubbleChartProps {
   xIsPercentage?: boolean   // 横轴是否为百分比格式
   yIsPercentage?: boolean   // 纵轴是否为百分比格式
   sizeIsPercentage?: boolean // 气泡大小是否为百分比格式
+  enableMultiColor?: boolean // 是否开启多彩模式
 }
 
 /**
@@ -64,12 +65,18 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   xIsPercentage,
   yIsPercentage,
   sizeIsPercentage,
+  enableMultiColor,
 }) => {
   // chartRef: ECharts容器DOM元素引用
   const chartRef = useRef<HTMLDivElement>(null)
 
   // chartInstanceRef: ECharts实例引用
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
+
+  // 飞书风格色板
+  const colorPalette = [
+    '#336DF4', '#5B65F5', '#25B0E7', '#DB7018', '#FFC60A', '#8C55EC', '#FFE928', '#F54A45', '#91AD00', '#BF3DBF', '#35BD4B', '#DF58A5', '#1FA18F'
+  ]
 
   useEffect(() => {
     return () => {
@@ -186,7 +193,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
      * 数值轴：直接使用数值
      * 类目轴：使用类目索引（指向 options 数组中的位置），但显示原始文本
      */
-    const seriesData = data.map(item => {
+    const seriesData = data.map((item, index) => {
       // X轴值处理
       let xValue: number | string
       let xDisplay: number | string
@@ -211,14 +218,21 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         yDisplay = item.y
       }
 
+      // 根据 enableMultiColor 属性决定颜色方案：
+      // 如果开启多彩模式 (enableMultiColor 为 true)，则从预定义的飞书风格色板 (colorPalette) 中根据当前数据项的索引 (index) 循环选择颜色，实现多彩气泡；
+      // 否则 (enableMultiColor 为 false)，所有气泡都使用默认的单色 #1456F0。
+      const itemColor = enableMultiColor
+        ? colorPalette[index % colorPalette.length]
+        : '#1456F0'
+
       return {
         name: item.name,
         value: [xValue, yValue, item.size] as [number | string, number | string, number],
         // 使用原始文本作为显示值
         data: [xDisplay, yDisplay, item.size],
         itemStyle: {
-          color: '#1890ff',
-          opacity: 0.7
+          color: itemColor,
+          opacity: 0.6
         }
       }
     })
@@ -305,7 +319,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
 
     chartInstanceRef.current.setOption(option)
-  }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData, xIsPercentage, yIsPercentage, sizeIsPercentage])
+  }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData, xIsPercentage, yIsPercentage, sizeIsPercentage, enableMultiColor])
 
   useEffect(() => {
     const handleResize = () => {

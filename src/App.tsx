@@ -26,11 +26,12 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Button, Typography, Select, Tooltip } from '@douyinfe/semi-ui'
+import { Button, Typography, Select, Tooltip, Checkbox } from '@douyinfe/semi-ui'
 import { IconIssueStroked } from '@douyinfe/semi-icons'
 import { dashboard, Rollup, type ISeries } from '@lark-base-open/js-sdk'
 import { useDashboard, useTables, useFields, type BubbleChartConfig } from './hooks/useDashboard'
 import { useFieldOptions } from './hooks/useFieldOptions'
+import { useViews } from './hooks/useViews'
 import { useData3 as useData } from './hooks/useData3'
 import { BubbleChart } from './components/BubbleChart'
 
@@ -131,6 +132,9 @@ function App() {
 
   // 根据选中的数据源表，获取数字字段、文本字段和类目字段列表
   const { fields, numericFields, textFields, categoryFields, loading: fieldsLoading } = useFields(config.dataSource)
+
+  // 获取数据源下的所有视图列表
+  const { views, loading: viewsLoading } = useViews(config.dataSource)
 
   // 获取横轴字段的选项（如果是单选字段）
   // 重要：无论xFieldType是什么，都尝试获取选项。如果字段不是单选，useFieldOptions会返回空数组
@@ -249,16 +253,18 @@ function App() {
    */
   const handleConfigChange = (
     key: keyof BubbleChartConfig,
-    value: string | number | any[] | Record<string, any> | undefined
+    value: string | number | boolean | any[] | Record<string, any> | undefined
   ) => {
-    const stringValue = typeof value === 'string' ? value : undefined
+    // const stringValue = typeof value === 'string' ? value : undefined
+    // 修复：不再强制转换为 string，允许 boolean 等类型通过
+    const finalValue = value
 
     setConfig(prev => {
-      const newConfig = { ...prev, [key]: stringValue }
+      const newConfig: BubbleChartConfig = { ...prev, [key]: finalValue as any }
 
       // 当横轴字段变化时，检测字段类型
-      if (key === 'xField' && stringValue) {
-        const field = fields.find(f => f.id === stringValue)
+      if (key === 'xField' && typeof finalValue === 'string') {
+        const field = fields.find(f => f.id === finalValue)
         if (field) {
           // 如果是公式字段，不设置 xFieldType，让 useData 自动检测
           if (field.isFormula) {
@@ -271,8 +277,8 @@ function App() {
       }
 
       // 当纵轴字段变化时，检测字段类型
-      if (key === 'yField' && stringValue) {
-        const field = fields.find(f => f.id === stringValue)
+      if (key === 'yField' && typeof finalValue === 'string') {
+        const field = fields.find(f => f.id === finalValue)
         if (field) {
           // 如果是公式字段，不设置 yFieldType，让 useData 自动检测
           if (field.isFormula) {
@@ -392,6 +398,7 @@ function App() {
             xIsPercentage={fields.find(f => f.id === config.xField)?.isPercentage}
             yIsPercentage={fields.find(f => f.id === config.yField)?.isPercentage}
             sizeIsPercentage={fields.find(f => f.id === config.sizeField)?.isPercentage}
+            enableMultiColor={config.enableMultiColor}
           />
         </div>
       )
@@ -420,6 +427,7 @@ function App() {
               xIsPercentage={fields.find(f => f.id === config.xField)?.isPercentage}
               yIsPercentage={fields.find(f => f.id === config.yField)?.isPercentage}
               sizeIsPercentage={fields.find(f => f.id === config.sizeField)?.isPercentage}
+              enableMultiColor={config.enableMultiColor}
             />
           </div>
         </div>
@@ -428,7 +436,7 @@ function App() {
         <div style={{
           width: '340px',  // 固定宽度，不会随窗口大小变化
           borderLeft: '1px solid #e0e0e0',  // 左侧边框分隔预览区域
-          background: '#fafafa',
+          // background: '#fafafa',
           display: 'flex',
           flexDirection: 'column'
         }}>
@@ -453,6 +461,28 @@ function App() {
                 ))}
               </Select>
             </div>
+
+            {/* 数据范围选择：仅在选中数据源后显示 */}
+            {config.dataSource && (
+              <div style={{ marginBottom: '20px' }}>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>数据范围：</Text>
+                <Select
+                  value={config.viewId}
+                  onChange={(value) => handleConfigChange('viewId', value)}
+                  placeholder="全部数据"
+                  style={{ width: '100%' }}
+                  loading={viewsLoading}
+                  filter
+                >
+                  <Select.Option value={undefined}>全部数据</Select.Option>
+                  {views.map(view => (
+                    <Select.Option key={view.id} value={view.id}>
+                      {view.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+            )}
 
             {/* 字段选择器：仅在选中数据源后显示 */}
             {config.dataSource && (
@@ -501,6 +531,16 @@ function App() {
                   showClear={true}
                   tooltip="如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据"
                 />
+
+                {/* 多彩模式复选框 */}
+                <div style={{ marginBottom: '20px' }}>
+                  <Checkbox
+                    checked={config.enableMultiColor || false}
+                    onChange={(e: any) => handleConfigChange('enableMultiColor', e.target.checked)}
+                  >
+                    <Text>多彩气泡</Text>
+                  </Checkbox>
+                </div>
               </>
             )}
           </div>
@@ -539,7 +579,9 @@ function App() {
       width: '100%',
       height: '100vh',
       overflow: 'hidden',  // 防止出现滚动条
-      position: 'relative'
+      position: 'relative',
+      borderTop: isConfig ? '1px solid #e0e0e0' : 'none', // 配置模式下添加顶部边框
+      boxSizing: 'border-box' // 确保边框包含在高度内，防止溢出
     }}>
       {renderContent()}
     </div>
