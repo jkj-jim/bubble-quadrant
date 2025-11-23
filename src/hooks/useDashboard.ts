@@ -51,6 +51,7 @@ export interface BubbleChartConfig {
   yFieldOptions?: string[]  // 纵轴字段选项列表（类目轴时使用）
   viewId?: string           // 数据范围视图ID，undefined 表示全部数据
   enableMultiColor?: boolean // 是否开启多彩模式
+  showLabel?: boolean        // 是否常显名称标签
 }
 
 /**

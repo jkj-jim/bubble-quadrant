@@ -390,6 +390,8 @@ function App() {
             xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
             yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
             sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}
+            nameFieldName={config.nameField ? textFields.find(f => f.id === config.nameField)?.name : undefined}
+            showLabel={config.showLabel}
             loading={dataLoading}
             xAxisType={resolvedXType === 'number' ? 'value' : 'category'}
             yAxisType={resolvedYType === 'number' ? 'value' : 'category'}
@@ -419,6 +421,8 @@ function App() {
               xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
               yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
               sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}
+              nameFieldName={config.nameField ? textFields.find(f => f.id === config.nameField)?.name : undefined}
+              showLabel={config.showLabel}
               loading={dataLoading}
               xAxisType={resolvedXType === 'number' ? 'value' : 'category'}
               yAxisType={resolvedYType === 'number' ? 'value' : 'category'}
@@ -532,14 +536,23 @@ function App() {
                   tooltip="如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据"
                 />
 
-                {/* 多彩模式复选框 */}
-                <div style={{ marginBottom: '20px' }}>
+                {/* 多彩模式和名称常显复选框 */}
+                <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '24px' }}>
                   <Checkbox
                     checked={config.enableMultiColor || false}
                     onChange={(e: any) => handleConfigChange('enableMultiColor', e.target.checked)}
                   >
                     <Text>多彩气泡</Text>
                   </Checkbox>
+
+                  {config.nameField && (
+                    <Checkbox
+                      checked={config.showLabel || false}
+                      onChange={(e: any) => handleConfigChange('showLabel', e.target.checked)}
+                    >
+                      <Text>名称常显</Text>
+                    </Checkbox>
+                  )}
                 </div>
               </>
             )}

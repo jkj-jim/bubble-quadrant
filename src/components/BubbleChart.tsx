@@ -33,6 +33,7 @@ export interface BubbleChartProps {
   xFieldName?: string       // 横轴字段名（用于显示）
   yFieldName?: string       // 纵轴字段名（用于显示）
   sizeFieldName?: string    // 大小字段名（用于显示）
+  nameFieldName?: string    // 名称字段名（用于判断是否显示标签）
   loading?: boolean         // 加载状态
   xAxisType?: 'value' | 'category'  // 横轴类型（数值/类目）
   yAxisType?: 'value' | 'category'  // 纵轴类型（数值/类目）
@@ -42,6 +43,7 @@ export interface BubbleChartProps {
   yIsPercentage?: boolean   // 纵轴是否为百分比格式
   sizeIsPercentage?: boolean // 气泡大小是否为百分比格式
   enableMultiColor?: boolean // 是否开启多彩模式
+  showLabel?: boolean        // 是否常显名称标签
 }
 
 /**
@@ -57,6 +59,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   xFieldName,
   yFieldName,
   sizeFieldName,
+  nameFieldName,
   loading,
   xAxisType = 'value',  // 默认为数值轴，向后兼容
   yAxisType = 'value',  // 默认为数值轴，向后兼容
@@ -66,6 +69,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   yIsPercentage,
   sizeIsPercentage,
   enableMultiColor,
+  showLabel,
 }) => {
   // chartRef: ECharts容器DOM元素引用
   const chartRef = useRef<HTMLDivElement>(null)
@@ -305,6 +309,17 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
             // 线性映射公式: Pixel = MinPixel + (Val - MinVal) / (MaxVal - MinVal) * (MaxPixel - MinPixel)
             const size = MIN_BUBBLE_SIZE + (sizeVal - minSize) / (maxSize - minSize) * (MAX_BUBBLE_SIZE - MIN_BUBBLE_SIZE)
             return size
+          },
+          label: {
+            show: !!nameFieldName && !!showLabel, // 只有当配置了气泡名称字段且开启了常显时才显示标签
+            formatter: '{b}',      // 显示数据项名称 (name)
+            position: 'top',       // 显示在气泡上方
+            fontSize: 12,
+            // color: '#333',
+            opacity: 0.8  // 覆盖气泡的透明度
+          },
+          labelLayout: {
+            hideOverlap: true      // 自动隐藏重叠的标签
           },
           data: seriesData,
           emphasis: {
