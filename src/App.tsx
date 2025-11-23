@@ -69,7 +69,7 @@ const FieldSelect: React.FC<{
     <div style={{ marginBottom: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Text strong>{label}：</Text>
+          <Text strong>{label}</Text>
           {tooltip && (
             <Tooltip content={tooltip}>
               <IconIssueStroked style={{ color: 'var(--semi-color-text-2)', marginLeft: 4, cursor: 'help' }} />
@@ -246,6 +246,89 @@ function App() {
   }, [])
 
 
+  /**
+   * useEffect: 自动填充 - 新建图表时选择第一个数据源
+   */
+  useEffect(() => {
+    if (state === 'create' && tables.length > 0 && !config.dataSource) {
+      handleConfigChange('dataSource', tables[0].id)
+    }
+  }, [state, tables, config.dataSource])
+
+
+  /**
+   * useEffect: 自动填充 - 当数据源变化且字段可用时，自动选择横轴和纵轴
+   */
+  useEffect(() => {
+    if (!config.dataSource) return
+
+    // 辅助函数：合并数字字段和类目字段
+    const getCombinedFields = () => {
+      const fieldMap = new Map()
+      numericFields.forEach(f => fieldMap.set(f.id, f))
+      categoryFields.forEach(f => fieldMap.set(f.id, f))
+      return Array.from(fieldMap.values())
+    }
+
+    const combinedFields = getCombinedFields()
+
+    // 只有在字段加载完成时才执行逻辑（即使字段数量为0也要执行，用于清空无效字段）
+    if (!fieldsLoading) {
+      setConfig(prev => {
+        const updates: Partial<BubbleChartConfig> = {}
+
+        // 验证当前选中的字段是否在新的字段列表中
+        const currentXFieldExists = prev.xField ? combinedFields.some(f => f.id === prev.xField) : false
+        const currentYFieldExists = prev.yField ? combinedFields.some(f => f.id === prev.yField) : false
+
+        // 处理横轴
+        if (!prev.xField || !currentXFieldExists) {
+          if (combinedFields.length > 0) {
+            // 如果有可用字段，选择第一个
+            updates.xField = combinedFields[0].id
+            const field = fields.find(f => f.id === combinedFields[0].id)
+            if (field) {
+              if (!field.isFormula) {
+                updates.xFieldType = field.isCategory ? 'category' : 'number'
+              }
+            }
+          } else {
+            // 如果没有可用字段，清空横轴
+            if (prev.xField) {
+              updates.xField = undefined
+              delete updates.xFieldType
+            }
+          }
+        }
+
+        // 处理纵轴
+        if (!prev.yField || !currentYFieldExists) {
+          if (combinedFields.length > 1) {
+            // 如果有至少两个字段，选择第二个
+            updates.yField = combinedFields[1].id
+            const field = fields.find(f => f.id === combinedFields[1].id)
+            if (field) {
+              if (!field.isFormula) {
+                updates.yFieldType = field.isCategory ? 'category' : 'number'
+              }
+            }
+          } else {
+            // 如果少于两个字段，清空纵轴
+            if (prev.yField) {
+              updates.yField = undefined
+              delete updates.yFieldType
+            }
+          }
+        }
+
+        // 只有when有更新时才返回新对象
+        if (Object.keys(updates).length > 0) {
+          return { ...prev, ...updates }
+        }
+        return prev
+      })
+    }
+  }, [config.dataSource, fieldsLoading, numericFields, categoryFields, fields, config.xField, config.yField])
 
 
   /**
@@ -261,6 +344,18 @@ function App() {
 
     setConfig(prev => {
       const newConfig: BubbleChartConfig = { ...prev, [key]: finalValue as any }
+
+      // 当数据源变化时，重置所有字段选择
+      if (key === 'dataSource') {
+        newConfig.viewId = undefined      // 重置为"全部数据"
+        newConfig.xField = undefined       // 清空横轴
+        newConfig.yField = undefined       // 清空纵轴
+        newConfig.sizeField = undefined    // 清空气泡大小
+        newConfig.nameField = undefined    // 清空气泡名称
+        delete newConfig.xFieldType
+        delete newConfig.yFieldType
+        return newConfig
+      }
 
       // 当横轴字段变化时，检测字段类型
       if (key === 'xField' && typeof finalValue === 'string') {
@@ -449,7 +544,7 @@ function App() {
 
             {/* 数据源选择：必须先选择数据源，才会显示其他字段 */}
             <div style={{ marginBottom: '20px' }}>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>数据源：</Text>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>数据源</Text>
               <Select
                 value={config.dataSource}
                 onChange={(value) => handleConfigChange('dataSource', value)}
@@ -469,7 +564,7 @@ function App() {
             {/* 数据范围选择：仅在选中数据源后显示 */}
             {config.dataSource && (
               <div style={{ marginBottom: '20px' }}>
-                <Text strong style={{ display: 'block', marginBottom: 8 }}>数据范围：</Text>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>数据范围</Text>
                 <Select
                   value={config.viewId}
                   onChange={(value) => handleConfigChange('viewId', value)}
@@ -493,7 +588,7 @@ function App() {
               <>
                 {/* 横轴：必选，支持数字字段和单选字段（类目） */}
                 <FieldSelect
-                  label="横轴（必选）"
+                  label="横轴"
                   value={config.xField}
                   onChange={(value) => handleConfigChange('xField', value)}
                   fields={getCombinedFieldsWithType()}
@@ -504,7 +599,7 @@ function App() {
 
                 {/* 纵轴：必选，支持数字字段和单选字段（类目） */}
                 <FieldSelect
-                  label="纵轴（必选）"
+                  label="纵轴"
                   value={config.yField}
                   onChange={(value) => handleConfigChange('yField', value)}
                   fields={getCombinedFieldsWithType()}
@@ -515,7 +610,7 @@ function App() {
 
                 {/* 气泡大小：可选，仅支持数值类型（包括数值公式） */}
                 <FieldSelect
-                  label="气泡大小（可选）"
+                  label="气泡大小"
                   value={config.sizeField}
                   onChange={(value) => handleConfigChange('sizeField', value)}
                   fields={numericFields.filter(f => f.type !== 3 || f.isNumericFormula)} // 3 is FieldType.Formula. Using literal or import if available. Better to use property check.
@@ -526,7 +621,7 @@ function App() {
 
                 {/* 气泡名称：选填，必须为文本字段 */}
                 <FieldSelect
-                  label="气泡名称（选填）"
+                  label="气泡名称"
                   value={config.nameField}
                   onChange={(value) => handleConfigChange('nameField', value)}
                   fields={textFields}

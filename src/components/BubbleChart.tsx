@@ -98,9 +98,9 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
 
     // 气泡尺寸配置
     bubble: {
-      minSize: 8,               // 最小气泡尺寸
+      minSize: 10,               // 最小气泡尺寸
       maxSize: 80,              // 最大气泡尺寸
-      defaultSize: 10,          // 默认气泡尺寸（无大小字段时）
+      defaultSize: 8,          // 默认气泡尺寸（无大小字段时）
       opacity: 0.6,             // 默认气泡透明度
       borderColor: '#555'      // 默认气泡边框颜色
     },
@@ -347,10 +347,20 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           },
           data: seriesData,
           emphasis: {
+            focus: 'self',  // 聚焦当前项，其他项自动进入 blur 状态
             itemStyle: {
               opacity: CHART_STYLES.emphasis.opacity,
               shadowBlur: CHART_STYLES.emphasis.shadowBlur,
               shadowColor: CHART_STYLES.emphasis.shadowColor
+            }
+          },
+          blur: {
+            label: {
+              show: false    // hover 时隐藏其他气泡的标签
+            },
+            itemStyle: {
+              opacity: 0.15,  // 降低其他气泡的透明度
+              color: '#ccc'   // 其他气泡变灰
             }
           }
         }
