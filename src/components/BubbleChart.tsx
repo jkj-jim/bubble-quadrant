@@ -77,10 +77,106 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   // chartInstanceRef: ECharts实例引用
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
 
+  //Echarts 风格色板
+  // const colorPalette = [
+  //   '#5070dd', '#b6d634', '#505372', '#ff994d', '#0ca8df', '#ffd10a', '#fb628b', '#785db0', '#3fbe95'
+  // ]
+
   // 飞书风格色板
   const colorPalette = [
     '#336DF4', '#5B65F5', '#25B0E7', '#DB7018', '#FFC60A', '#8C55EC', '#FFE928', '#F54A45', '#91AD00', '#BF3DBF', '#35BD4B', '#DF58A5', '#1FA18F'
   ]
+
+  // 图表样式配置常量
+  const CHART_STYLES = {
+    // 颜色配置
+    colors: {
+      axisName: '#646A73',      // 轴名称颜色
+      axisLine: '#BBBFC4',      // 轴线颜色
+      axisLabel: '#646A73',     // 轴标签颜色
+    },
+
+    // 气泡尺寸配置
+    bubble: {
+      minSize: 8,               // 最小气泡尺寸
+      maxSize: 80,              // 最大气泡尺寸
+      defaultSize: 10,          // 默认气泡尺寸（无大小字段时）
+      opacity: 0.6,             // 默认气泡透明度
+      borderColor: '#555'      // 默认气泡边框颜色
+    },
+
+    // 标签配置
+    label: {
+      fontSize: 12,
+      opacity: 0.8,
+      // color: '#333',
+      position: 'inside' as const,
+    },
+
+    // 网格配置
+    grid: {
+      left: '20px',
+      right: '60px',
+      bottom: '30px',
+      top: '40px',
+      containLabel: true
+    },
+
+    // 强调样式
+    emphasis: {
+      opacity: 1,
+      shadowBlur: 10,
+      shadowColor: 'rgba(0, 0, 0, 0.3)',
+    },
+  } as const
+
+  /**
+   * 创建轴配置
+   * @param config 轴特定配置
+   */
+  const createAxisConfig = (config: {
+    type: 'value' | 'category'
+    name: string
+    data?: string[]
+    isPercentage?: boolean
+  }) => {
+    const baseConfig = {
+      type: config.type,
+      name: config.name,
+      nameLocation: 'end' as const,
+      nameGap: 10,
+      nameTextStyle: {
+        color: CHART_STYLES.colors.axisName
+      },
+      splitLine: {
+        show: true,
+        lineStyle: {
+          type: 'dashed' as const,
+        }
+      },
+      axisLine: {
+        lineStyle: {
+          color: CHART_STYLES.colors.axisLine
+        }
+      },
+      axisLabel: {
+        color: CHART_STYLES.colors.axisLabel,
+        formatter: (value: any) => {
+          if (config.isPercentage && typeof value === 'number') {
+            return parseFloat((value * 100).toFixed(2)) + '%'
+          }
+          return value
+        }
+      }
+    }
+
+    // 如果是类目轴，添加数据列表
+    if (config.type === 'category' && config.data) {
+      return { ...baseConfig, data: config.data }
+    }
+
+    return baseConfig
+  }
 
   useEffect(() => {
     return () => {
@@ -110,87 +206,21 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       }
     }
     /**
-     * 动态生成X轴配置
-     * 根据轴类型（value/category）生成不同的配置
+     * 使用工厂函数生成X轴和Y轴配置
      */
-    const xAxis: any = {
+    const xAxis = createAxisConfig({
       type: xAxisType,
       name: xFieldName || '横轴',
-      nameLocation: 'end',
-      nameGap: 10,
-      nameTextStyle: {
-        color: '#646A73'
-      },
-      splitLine: {
-        show: true,
-        lineStyle: {
-          type: 'dashed',
-          // color: '#D5D5D7'
-        }
-      },
-      axisLine: {
-        lineStyle: {
-          color: '#BBBFC4'
-        }
-      },
-      axisLabel: {
-        color: '#8F959E',
-        formatter: (value: any) => {
-          if (xIsPercentage && typeof value === 'number') {
-            // 智能百分比格式：去除末尾多余的零
-            // 例如：0.09 -> 9%，0.095 -> 9.5%
-            return parseFloat((value * 100).toFixed(2)) + '%'
-          }
-          return value
-        }
-      }
-    }
+      data: xAxisType === 'category' ? xAxisData : undefined,
+      isPercentage: xIsPercentage
+    })
 
-    // 如果是类目轴，添加数据列表
-    if (xAxisType === 'category' && xAxisData) {
-      xAxis.data = xAxisData
-    }
-
-    /**
-     * 动态生成Y轴配置
-     * 根据轴类型（value/category）生成不同的配置
-     */
-    const yAxis: any = {
+    const yAxis = createAxisConfig({
       type: yAxisType,
       name: yFieldName || '纵轴',
-      nameLocation: 'end',
-      nameGap: 10,
-      nameTextStyle: {
-        color: '#646A73'
-      },
-      splitLine: {
-        show: true,
-        lineStyle: {
-          type: 'dashed',
-          // color: '#D5D5D7'
-        }
-      },
-      axisLine: {
-        lineStyle: {
-          color: '#BBBFC4'
-        }
-      },
-      axisLabel: {
-        color: '#8F959E',
-        formatter: (value: any) => {
-          if (yIsPercentage && typeof value === 'number') {
-            // 智能百分比格式：去除末尾多余的零
-            return parseFloat((value * 100).toFixed(2)) + '%'
-          }
-          return value
-        }
-      }
-    }
-
-    // 如果是类目轴，添加数据列表
-    if (yAxisType === 'category' && yAxisData) {
-      yAxis.data = yAxisData
-    }
+      data: yAxisType === 'category' ? yAxisData : undefined,
+      isPercentage: yIsPercentage
+    })
 
     /**
      * 处理图表数据，根据轴类型选择不同的值
@@ -224,10 +254,10 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
 
       // 根据 enableMultiColor 属性决定颜色方案：
       // 如果开启多彩模式 (enableMultiColor 为 true)，则从预定义的飞书风格色板 (colorPalette) 中根据当前数据项的索引 (index) 循环选择颜色，实现多彩气泡；
-      // 否则 (enableMultiColor 为 false)，所有气泡都使用默认的单色 #1456F0。
+      // 否则 (enableMultiColor 为 false)，所有气泡都使用默认的单色 #336DF4
       const itemColor = enableMultiColor
         ? colorPalette[index % colorPalette.length]
-        : '#1456F0'
+        : '#336DF4'
 
       return {
         name: item.name,
@@ -236,7 +266,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         data: [xDisplay, yDisplay, item.size],
         itemStyle: {
           color: itemColor,
-          opacity: 0.6
+          opacity: CHART_STYLES.bubble.opacity,
+          borderColor: CHART_STYLES.bubble.borderColor
         }
       }
     })
@@ -245,18 +276,10 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     const sizes = data.map(item => item.size)
     const minSize = Math.min(...sizes)
     const maxSize = Math.max(...sizes)
-    const MIN_BUBBLE_SIZE = 8
-    const MAX_BUBBLE_SIZE = 80
 
     const option: EChartsOption = {
       backgroundColor: 'transparent',
-      grid: {
-        left: '20px',
-        right: '60px',
-        bottom: '30px',
-        top: '40px',
-        containLabel: true
-      },
+      grid: CHART_STYLES.grid,
       xAxis,
       yAxis,
       tooltip: {//用于调整 hover 时的提示框
@@ -295,7 +318,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           symbolSize: (val: any) => {
             // 如果没有配置大小字段，使用固定大小
             if (!sizeFieldName) {
-              return 10
+              return CHART_STYLES.bubble.defaultSize
             }
 
             // 获取原始大小值
@@ -303,20 +326,21 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
 
             // 如果所有数据大小相同，返回中间大小
             if (maxSize === minSize) {
-              return (MIN_BUBBLE_SIZE + MAX_BUBBLE_SIZE) / 2
+              return (CHART_STYLES.bubble.minSize + CHART_STYLES.bubble.maxSize) / 2
             }
 
             // 线性映射公式: Pixel = MinPixel + (Val - MinVal) / (MaxVal - MinVal) * (MaxPixel - MinPixel)
-            const size = MIN_BUBBLE_SIZE + (sizeVal - minSize) / (maxSize - minSize) * (MAX_BUBBLE_SIZE - MIN_BUBBLE_SIZE)
+            const size = CHART_STYLES.bubble.minSize + (sizeVal - minSize) / (maxSize - minSize) * (CHART_STYLES.bubble.maxSize - CHART_STYLES.bubble.minSize)
             return size
           },
           label: {
             show: !!nameFieldName && !!showLabel, // 只有当配置了气泡名称字段且开启了常显时才显示标签
             formatter: '{b}',      // 显示数据项名称 (name)
-            position: 'top',       // 显示在气泡上方
-            fontSize: 12,
-            // color: '#333',
-            opacity: 0.8  // 覆盖气泡的透明度
+            position: CHART_STYLES.label.position,
+            fontSize: CHART_STYLES.label.fontSize,
+            // color: CHART_STYLES.label.color,
+            // textBorderWidth: 0,
+            opacity: CHART_STYLES.label.opacity
           },
           labelLayout: {
             hideOverlap: true      // 自动隐藏重叠的标签
@@ -324,9 +348,9 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           data: seriesData,
           emphasis: {
             itemStyle: {
-              opacity: 1,
-              shadowBlur: 10,
-              shadowColor: 'rgba(0, 0, 0, 0.3)'
+              opacity: CHART_STYLES.emphasis.opacity,
+              shadowBlur: CHART_STYLES.emphasis.shadowBlur,
+              shadowColor: CHART_STYLES.emphasis.shadowColor
             }
           }
         }

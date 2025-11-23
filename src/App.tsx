@@ -362,13 +362,13 @@ function App() {
 
         let typeLabel = ''
         if (field.isFormula) {
-          typeLabel = `${field.name}（公式）`
+          typeLabel = `${field.name}`
         } else if (isCategory && isNumeric) {
-          typeLabel = `${field.name}（数值/类目）`
+          typeLabel = `${field.name}`
         } else if (isCategory) {
-          typeLabel = `${field.name}（类目）`
+          typeLabel = `${field.name}`
         } else {
-          typeLabel = `${field.name}（数值）`
+          typeLabel = `${field.name}`
         }
 
         return {
