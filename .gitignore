@@ -26,6 +26,7 @@ dist-ssr
 .claude/*
 claude.md
 backup/*
+.gemini/*
 .agent/*
 飞书官方项目示例/*
 飞书官方资料/*
