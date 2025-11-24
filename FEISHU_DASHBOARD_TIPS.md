@@ -429,3 +429,170 @@ if (isPercentage) {
   displayValue = parseFloat((value * 100).toFixed(2)) + '%';
 }
 ```
+
+---
+
+## 🔄 React useEffect 中的字段验证模式（2025-11-23）
+
+在实现配置自动填充功能时，遇到了切换数据源时字段ID不匹配的问题。总结了一套健壮的字段验证模式。
+
+### 问题场景
+
+**问题**：当用户从数据源 A 切换到数据源 B 时，虽然配置被重置（`xField = undefined`），但如果字段列表更新有延迟，自动填充逻辑可能选择了错误的字段 ID。
+
+**典型表现**：
+- 下拉框显示字段 ID（如 `fldXXX`）而不是字段名称
+- 切换到字段数量不足的数据源时，仍然显示旧数据源的字段
+
+### 解决方案：字段存在性验证
+
+**核心思路**：在自动填充前，验证当前选中的字段 ID 是否存在于新的字段列表中。
+
+```typescript
+useEffect(() => {
+  if (!config.dataSource || fieldsLoading) return
+  
+  // 获取当前数据源的字段列表
+  const currentFields = getCombinedFields()
+  
+  setConfig(prev => {
+    const updates: Partial<Config> = {}
+    
+    // 验证当前选中的字段是否在新字段列表中
+    const xFieldExists = prev.xField 
+      ? currentFields.some(f => f.id === prev.xField) 
+      : false
+    
+    // 如果字段不存在或未选择，则自动填充
+    if (!prev.xField || !xFieldExists) {
+      if (currentFields.length > 0) {
+        // 有可用字段，选择第一个
+        updates.xField = currentFields[0].id
+      } else {
+        // 没有可用字段，清空配置
+        updates.xField = undefined
+      }
+    }
+    
+    return Object.keys(updates).length > 0 
+      ? { ...prev, ...updates } 
+      : prev
+  })
+}, [config.dataSource, fieldsLoading, fields])
+```
+
+### 关键要点
+
+1. **等待字段加载完成**：使用 `!fieldsLoading` 条件，确保字段列表已加载
+2. **验证字段存在性**：`currentFields.some(f => f.id === prev.xField)`
+3. **处理边缘情况**：
+   - 字段数为 0：清空配置（`undefined`）
+   - 字段数为 1：只填充第一个字段
+   - 字段数 >= 2：分别填充横轴和纵轴
+4. **避免无效更新**：检查 `updates` 是否为空，避免触发不必要的重渲染
+
+### 最佳实践
+
+- ✅ 始终验证字段 ID 的有效性，不要假设它一定存在
+- ✅ 使用函数式 `setState`，基于最新的 state 做判断
+- ✅ 处理所有边缘情况（0 个、1 个、多个字段）
+- ✅ 只在有实际变更时更新 state，避免性能问题
+- ❌ 不要在 useEffect 依赖数组中包含 `config.xField` 等会被修改的字段，会导致循环触发
+
+---
+
+## 🎨 主题适配与 UI 体验优化（2025-11-24）
+
+在解决暗黑模式适配和白屏闪烁问题时，我们总结了一套完整的 UI 最佳实践。
+
+### 1. 完美适配暗黑模式
+
+**核心原理**：
+飞书插件运行在 iframe 中，背景默认透明。要实现完美适配，需要同时处理 Semi UI 组件库和 ECharts 图表库。
+
+**实现步骤**：
+
+1.  **监听主题变化**：
+    使用 `bitable.bridge.onThemeChange` 监听宿主环境的主题切换。
+
+2.  **Semi UI 适配**：
+    Semi UI 依赖 `body` 上的 `theme-mode` 属性。
+    ```typescript
+    // App.tsx
+    useEffect(() => {
+      // 初始化
+      bitable.bridge.getTheme().then(theme => {
+        document.body.setAttribute('theme-mode', theme.toLowerCase());
+      });
+      
+      // 监听变化
+      return bitable.bridge.onThemeChange(theme => {
+        document.body.setAttribute('theme-mode', theme.toLowerCase());
+      });
+    }, []);
+    ```
+
+3.  **ECharts 适配（最佳实践）**：
+    不要使用 `MutationObserver` 监听 DOM，而是利用 React 的 `useMemo` 和 CSS 变量。
+    
+    ```typescript
+    // BubbleChart.tsx
+    
+    // 1. 定义配置，直接使用 CSS 变量名
+    const CHART_STYLE_CONFIG = {
+      colors: {
+        axisName: '--semi-grey-5',      // Semi UI 灰度色板
+        splitLine: '--semi-grey-1',     // 网格线
+        // ...
+      }
+    }
+    
+    // 2. 辅助函数：获取 CSS 变量值并处理 RGB 格式
+    const getTokenColor = (token, defaultValue = '') => {
+      const value = getComputedStyle(document.body).getPropertyValue(token).trim();
+      if (!value) return defaultValue;
+      
+      // Semi UI 的 grey 系列变量存储的是裸 RGB 值（如 "230,232,234"）
+      // 需要转换为 rgb() 格式才能用于 Canvas
+      if (/^[\d\s,]+$/.test(value)) {
+        return `rgb(${value})`;
+      }
+      
+      return value;
+    };
+    
+    // 3. 自动响应主题变化
+    const chartStyles = useMemo(() => {
+      return {
+        axisName: getTokenColor(CHART_STYLE_CONFIG.colors.axisName),
+        // ...
+      }
+    }, [theme]); // 依赖 theme prop
+    ```
+    
+    **重要提示：Semi UI CSS 变量的格式差异**
+    - `--semi-color-*` 系列：存储完整颜色值（如 `#333`、`rgba(0,0,0,0.5)`）
+    - `--semi-grey-*` 系列：存储**裸 RGB 值**（如 `230,232,234`），这是为了方便在 CSS 中使用 `rgba(var(--semi-grey-1), 0.5)` 添加透明度
+    - **ECharts 使用时**：裸 RGB 值必须包装成 `rgb()` 格式，否则无法正确渲染
+
+### 2. 国际化 (i18n) 的正确姿势
+
+**误区**：依赖 URL 参数 (`lang`) 或 `navigator.language`。
+**正解**：直接调用飞书 SDK 能力。
+
+```typescript
+// main.tsx
+const initApp = async () => {
+  // 1. 获取准确的宿主语言
+  const lang = await bitable.bridge.getLanguage();
+  
+  // 2. 初始化 i18n
+  await i18n.init({ lng: lang, ... });
+  
+  // 3. 渲染应用
+  ReactDOM.createRoot(...).render(<App />);
+};
+```
+
+**LoadApp 模式**：
+为了避免 i18n 初始化期间的白屏，建议创建一个 `LoadApp` 组件，先显示 Loading，待初始化完成后再渲染主应用。

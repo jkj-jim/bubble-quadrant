@@ -1,0 +1,33 @@
+{
+    "label": {
+        "clear": "Clear",
+        "dataSource": "Data Source",
+        "dataRange": "Data Range",
+        "xAxis": "X Axis",
+        "yAxis": "Y Axis",
+        "bubbleSize": "Bubble Size",
+        "bubbleName": "Bubble Name",
+        "multiColor": "Multi-color",
+        "showLabel": "Show Labels"
+    },
+    "placeholder": {
+        "selectField": "Select Field",
+        "selectWorksheet": "Select Worksheet",
+        "allData": "All Data",
+        "selectNumericField": "Select Numeric Field",
+        "selectTextField": "Select Text Field"
+    },
+    "tooltip": {
+        "bubbleName": "If empty, all data is shown; if set, only data with this field non-empty is shown"
+    },
+    "button": {
+        "saveAndView": "Save & View"
+    },
+    "chart": {
+        "loading": "Loading...",
+        "emptyTitle": "No Valid Data",
+        "emptyDescription": "Please check if the selected X and Y axis fields contain valid numeric data",
+        "defaultXAxis": "X Axis",
+        "defaultYAxis": "Y Axis"
+    }
+}

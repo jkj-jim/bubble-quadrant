@@ -18,10 +18,12 @@
  * - ../hooks/useDashboard: 数据类型定义（DataItem）
  */
 
-import { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
 import type { DataItem } from '../hooks/useDashboard'
+import type { BubbleChartConfig } from '../hooks/useDashboard'
 
 /**
  * BubbleChartProps - 气泡图组件属性
@@ -29,12 +31,14 @@ import type { DataItem } from '../hooks/useDashboard'
  * 扩展：支持数值轴和类目轴两种模式
  */
 export interface BubbleChartProps {
-  data: DataItem[]          // 图表数据
+  data: DataItem[]
+  loading: boolean
+  config: BubbleChartConfig
+  theme?: string
   xFieldName?: string       // 横轴字段名（用于显示）
   yFieldName?: string       // 纵轴字段名（用于显示）
   sizeFieldName?: string    // 大小字段名（用于显示）
   nameFieldName?: string    // 名称字段名（用于判断是否显示标签）
-  loading?: boolean         // 加载状态
   xAxisType?: 'value' | 'category'  // 横轴类型（数值/类目）
   yAxisType?: 'value' | 'category'  // 纵轴类型（数值/类目）
   xAxisData?: string[]      // 横轴类目选项列表
@@ -54,6 +58,41 @@ export interface BubbleChartProps {
  * - 支持类目轴（type: 'category'）用于散点图和混合轴场景
  * - 类目轴显示用户在单选字段中设定的选项顺序
  */
+// 统一的图表样式配置
+// 使用 Semi UI 的 CSS 变量名，支持暗黑模式自动切换
+const CHART_STYLE_CONFIG = {
+  colors: {
+    axisName: '--semi-grey-5',
+    axisLine: '--semi-grey-2',
+    axisLabel: '--semi-grey-5',
+    splitLine: '--semi-grey-1'  // 浅灰色网格线
+  },
+  bubble: {
+    minSize: 10,
+    maxSize: 80,
+    defaultSize: 8,
+    opacity: 0.6,
+    borderColor: '--semi-grey-9'
+  },
+  label: {
+    fontSize: 12,
+    opacity: 0.8,
+    position: 'inside' as const,
+  },
+  grid: {
+    left: '20px',
+    right: '60px',
+    bottom: '30px',
+    top: '40px',
+    containLabel: true
+  },
+  emphasis: {
+    opacity: 1,
+    shadowBlur: 10,
+    shadowColor: 'rgba(0, 0, 0, 0.3)',
+  }
+}
+
 export const BubbleChart: React.FC<BubbleChartProps> = ({
   data,
   xFieldName,
@@ -61,6 +100,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   sizeFieldName,
   nameFieldName,
   loading,
+  theme,
   xAxisType = 'value',  // 默认为数值轴，向后兼容
   yAxisType = 'value',  // 默认为数值轴，向后兼容
   xAxisData,
@@ -71,6 +111,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   enableMultiColor,
   showLabel,
 }) => {
+  const { t } = useTranslation()
+
   // chartRef: ECharts容器DOM元素引用
   const chartRef = useRef<HTMLDivElement>(null)
 
@@ -87,48 +129,40 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     '#336DF4', '#5B65F5', '#25B0E7', '#DB7018', '#FFC60A', '#8C55EC', '#FFE928', '#F54A45', '#91AD00', '#BF3DBF', '#35BD4B', '#DF58A5', '#1FA18F'
   ]
 
-  // 图表样式配置常量
-  const CHART_STYLES = {
-    // 颜色配置
-    colors: {
-      axisName: '#646A73',      // 轴名称颜色
-      axisLine: '#BBBFC4',      // 轴线颜色
-      axisLabel: '#646A73',     // 轴标签颜色
-    },
+  // 获取 CSS 变量颜色的辅助函数
+  // Semi UI 的 grey 系列变量存储的是 RGB 数字（如 "230,232,234"），需要转换为 rgb() 格式
+  const getTokenColor = (token: string, defaultValue: string = '') => {
+    const value = getComputedStyle(document.body).getPropertyValue(token).trim()
+    if (!value) return defaultValue
 
-    // 气泡尺寸配置
-    bubble: {
-      minSize: 10,               // 最小气泡尺寸
-      maxSize: 80,              // 最大气泡尺寸
-      defaultSize: 8,          // 默认气泡尺寸（无大小字段时）
-      opacity: 0.6,             // 默认气泡透明度
-      borderColor: '#555'      // 默认气泡边框颜色
-    },
+    // 如果值是纯数字和逗号（RGB 格式），转换为 rgb()
+    if (/^[\d\s,]+$/.test(value)) {
+      return `rgb(${value})`
+    }
 
-    // 标签配置
-    label: {
-      fontSize: 12,
-      opacity: 0.8,
-      // color: '#333',
-      position: 'inside' as const,
-    },
+    // 否则直接返回（已经是完整颜色值）
+    return value
+  }
 
-    // 网格配置
-    grid: {
-      left: '20px',
-      right: '60px',
-      bottom: '30px',
-      top: '40px',
-      containLabel: true
-    },
-
-    // 强调样式
-    emphasis: {
-      opacity: 1,
-      shadowBlur: 10,
-      shadowColor: 'rgba(0, 0, 0, 0.3)',
-    },
-  } as const
+  // 使用 useMemo 自动解析样式配置
+  // 依赖 theme 属性，当主题变化时自动重新计算颜色
+  const chartStyles = useMemo(() => {
+    return {
+      colors: {
+        axisName: getTokenColor(CHART_STYLE_CONFIG.colors.axisName, '#646A73'),
+        axisLine: getTokenColor(CHART_STYLE_CONFIG.colors.axisLine, '#BBBFC4'),
+        axisLabel: getTokenColor(CHART_STYLE_CONFIG.colors.axisLabel, '#646A73'),
+        splitLine: getTokenColor(CHART_STYLE_CONFIG.colors.splitLine, '#F3F4F5'),
+      },
+      bubble: {
+        ...CHART_STYLE_CONFIG.bubble,
+        borderColor: getTokenColor(CHART_STYLE_CONFIG.bubble.borderColor, '#555')
+      },
+      label: CHART_STYLE_CONFIG.label,
+      grid: CHART_STYLE_CONFIG.grid,
+      emphasis: CHART_STYLE_CONFIG.emphasis
+    }
+  }, [theme])
 
   /**
    * 创建轴配置
@@ -146,21 +180,22 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       nameLocation: 'end' as const,
       nameGap: 10,
       nameTextStyle: {
-        color: CHART_STYLES.colors.axisName
+        color: chartStyles.colors.axisName
       },
       splitLine: {
         show: true,
         lineStyle: {
           type: 'dashed' as const,
+          color: chartStyles.colors.splitLine
         }
       },
       axisLine: {
         lineStyle: {
-          color: CHART_STYLES.colors.axisLine
+          color: chartStyles.colors.axisLine
         }
       },
       axisLabel: {
-        color: CHART_STYLES.colors.axisLabel,
+        color: chartStyles.colors.axisLabel,
         formatter: (value: any) => {
           if (config.isPercentage && typeof value === 'number') {
             return parseFloat((value * 100).toFixed(2)) + '%'
@@ -189,8 +224,9 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   }, [])
 
   useEffect(() => {
-    // 如果正在加载或没有数据，清空图表
-    if (loading || data.length === 0) {
+    // 只有当非加载状态且没有数据时，才清空图表
+    // 这样在 loading 期间会保留上一份数据的渲染结果，避免白屏闪烁
+    if (!loading && data.length === 0) {
       if (chartInstanceRef.current) {
         chartInstanceRef.current.clear()
       }
@@ -210,14 +246,14 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
      */
     const xAxis = createAxisConfig({
       type: xAxisType,
-      name: xFieldName || '横轴',
+      name: xFieldName || t('chart.defaultXAxis'),
       data: xAxisType === 'category' ? xAxisData : undefined,
       isPercentage: xIsPercentage
     })
 
     const yAxis = createAxisConfig({
       type: yAxisType,
-      name: yFieldName || '纵轴',
+      name: yFieldName || t('chart.defaultYAxis'),
       data: yAxisType === 'category' ? yAxisData : undefined,
       isPercentage: yIsPercentage
     })
@@ -266,8 +302,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         data: [xDisplay, yDisplay, item.size],
         itemStyle: {
           color: itemColor,
-          opacity: CHART_STYLES.bubble.opacity,
-          borderColor: CHART_STYLES.bubble.borderColor
+          opacity: chartStyles.bubble.opacity,
+          borderColor: chartStyles.bubble.borderColor
         }
       }
     })
@@ -279,7 +315,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
 
     const option: EChartsOption = {
       backgroundColor: 'transparent',
-      grid: CHART_STYLES.grid,
+      grid: chartStyles.grid,
       xAxis,
       yAxis,
       tooltip: {//用于调整 hover 时的提示框
@@ -318,7 +354,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           symbolSize: (val: any) => {
             // 如果没有配置大小字段，使用固定大小
             if (!sizeFieldName) {
-              return CHART_STYLES.bubble.defaultSize
+              return chartStyles.bubble.defaultSize
             }
 
             // 获取原始大小值
@@ -326,21 +362,21 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
 
             // 如果所有数据大小相同，返回中间大小
             if (maxSize === minSize) {
-              return (CHART_STYLES.bubble.minSize + CHART_STYLES.bubble.maxSize) / 2
+              return (chartStyles.bubble.minSize + chartStyles.bubble.maxSize) / 2
             }
 
             // 线性映射公式: Pixel = MinPixel + (Val - MinVal) / (MaxVal - MinVal) * (MaxPixel - MinPixel)
-            const size = CHART_STYLES.bubble.minSize + (sizeVal - minSize) / (maxSize - minSize) * (CHART_STYLES.bubble.maxSize - CHART_STYLES.bubble.minSize)
+            const size = chartStyles.bubble.minSize + (sizeVal - minSize) / (maxSize - minSize) * (chartStyles.bubble.maxSize - chartStyles.bubble.minSize)
             return size
           },
           label: {
             show: !!nameFieldName && !!showLabel, // 只有当配置了气泡名称字段且开启了常显时才显示标签
             formatter: '{b}',      // 显示数据项名称 (name)
-            position: CHART_STYLES.label.position,
-            fontSize: CHART_STYLES.label.fontSize,
+            position: chartStyles.label.position,
+            fontSize: chartStyles.label.fontSize,
             // color: CHART_STYLES.label.color,
             // textBorderWidth: 0,
-            opacity: CHART_STYLES.label.opacity
+            opacity: chartStyles.label.opacity
           },
           labelLayout: {
             hideOverlap: true      // 自动隐藏重叠的标签
@@ -348,10 +384,13 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           data: seriesData,
           emphasis: {
             focus: 'self',  // 聚焦当前项，其他项自动进入 blur 状态
+            label: {
+              show: true    // hover 时强制显示当前项的标签
+            },
             itemStyle: {
-              opacity: CHART_STYLES.emphasis.opacity,
-              shadowBlur: CHART_STYLES.emphasis.shadowBlur,
-              shadowColor: CHART_STYLES.emphasis.shadowColor
+              opacity: chartStyles.emphasis.opacity,
+              shadowBlur: chartStyles.emphasis.shadowBlur,
+              shadowColor: chartStyles.emphasis.shadowColor
             }
           },
           blur: {
@@ -368,7 +407,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
 
     chartInstanceRef.current.setOption(option)
-  }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData, xIsPercentage, yIsPercentage, sizeIsPercentage, enableMultiColor])
+  }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData, xIsPercentage, yIsPercentage, sizeIsPercentage, enableMultiColor, t, chartStyles])
 
   useEffect(() => {
     const handleResize = () => {
@@ -386,8 +425,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       {/* 图表容器：始终渲染，让 Echarts 可以初始化 */}
       <div ref={chartRef} style={{ width: '100%', height: '100%' }}></div>
 
-      {/* 加载状态：覆盖在图表上层 */}
-      {loading && (
+      {/* 加载状态：已移除遮罩层，保持旧图表显示直到新数据到来 */}
+      {/* {loading && (
         <div style={{
           position: 'absolute',
           top: 0,
@@ -398,12 +437,12 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
           color: '#999',
-          background: 'rgba(255, 255, 255, 0.8)',
+          background: 'transparent',
           zIndex: 10
         }}>
-          数据加载中...
+          {t('chart.loading')}
         </div>
-      )}
+      )} */}
 
       {/* 空状态提示：覆盖在图表上层 */}
       {!loading && data.length === 0 && (
@@ -423,9 +462,9 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           pointerEvents: 'none'  // 允许点击穿透到图表
         }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>🫧</div>
-          <div style={{ fontSize: '16px', marginBottom: '8px' }}>暂无有效数据</div>
+          <div style={{ fontSize: '16px', marginBottom: '8px' }}>{t('chart.emptyTitle')}</div>
           <div style={{ fontSize: '12px', textAlign: 'center', lineHeight: '1.5' }}>
-            请检查所选的横轴和纵轴字段是否包含有效的数字数据
+            {t('chart.emptyDescription')}
           </div>
         </div>
       )}

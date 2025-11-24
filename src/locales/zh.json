@@ -1,0 +1,33 @@
+{
+    "label": {
+        "clear": "清除",
+        "dataSource": "数据源",
+        "dataRange": "数据范围",
+        "xAxis": "横轴",
+        "yAxis": "纵轴",
+        "bubbleSize": "气泡大小",
+        "bubbleName": "气泡名称",
+        "multiColor": "多彩气泡",
+        "showLabel": "名称常显"
+    },
+    "placeholder": {
+        "selectField": "请选择字段",
+        "selectWorksheet": "请选择工作表",
+        "allData": "全部数据",
+        "selectNumericField": "选择数值字段",
+        "selectTextField": "选择文本字段"
+    },
+    "tooltip": {
+        "bubbleName": "如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据"
+    },
+    "button": {
+        "saveAndView": "保存并查看"
+    },
+    "chart": {
+        "loading": "数据加载中...",
+        "emptyTitle": "暂无有效数据",
+        "emptyDescription": "请检查所选的横轴和纵轴字段是否包含有效的数字数据",
+        "defaultXAxis": "横轴",
+        "defaultYAxis": "纵轴"
+    }
+}

@@ -26,9 +26,10 @@
  */
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button, Typography, Select, Tooltip, Checkbox } from '@douyinfe/semi-ui'
 import { IconIssueStroked } from '@douyinfe/semi-icons'
-import { dashboard, Rollup, type ISeries } from '@lark-base-open/js-sdk'
+import { bitable, dashboard, Rollup, type ISeries } from '@lark-base-open/js-sdk'
 import { useDashboard, useTables, useFields, type BubbleChartConfig } from './hooks/useDashboard'
 import { useFieldOptions } from './hooks/useFieldOptions'
 import { useViews } from './hooks/useViews'
@@ -65,6 +66,7 @@ const FieldSelect: React.FC<{
   showClear?: boolean
   tooltip?: string
 }> = ({ label, value, onChange, fields, loading, placeholder, showClear = false, tooltip }) => {
+  const { t } = useTranslation()
   return (
     <div style={{ marginBottom: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -82,14 +84,14 @@ const FieldSelect: React.FC<{
             style={{ cursor: 'pointer', fontSize: '12px', userSelect: 'none' }}
             onClick={() => onChange(undefined)}
           >
-            清除
+            {t('label.clear')}
           </Text>
         )}
       </div>
       <Select
         value={value}
         onChange={onChange}
-        placeholder={placeholder || '请选择字段'}
+        placeholder={placeholder || t('placeholder.selectField')}
         style={{ width: '100%' }}
         loading={loading}
         filter
@@ -121,8 +123,39 @@ const FieldSelect: React.FC<{
  * - dataLoading: 数据加载状态
  */
 function App() {
-  // 获取仪表盘状态（create/config/view/fullscreen）和是否配置状态
-  const { state, isConfig } = useDashboard()
+  const { t } = useTranslation()
+  const [theme, setTheme] = useState('LIGHT')
+
+  useEffect(() => {
+    function changeTheme(theme: string) {
+      const body = document.body;
+      if (theme === 'DARK') {
+        body.setAttribute('theme-mode', 'dark');
+        setTheme('DARK')
+      } else {
+        body.removeAttribute('theme-mode');
+        setTheme('LIGHT')
+      }
+    }
+
+    bitable.bridge.getTheme().then((theme) => {
+      changeTheme(theme)
+    })
+
+    const offThemeChange = bitable.bridge.onThemeChange((res) => {
+      changeTheme(res.data.theme)
+    })
+
+    return () => {
+      offThemeChange()
+    }
+  }, [])
+
+  // 1. 初始化 Dashboard 钩子
+  const {
+    state,
+    isConfig
+  } = useDashboard()
 
   // 获取所有工作表列表（用于数据源选择）
   const { tables, loading: tablesLoading } = useTables()
@@ -478,9 +511,11 @@ function App() {
         <div style={{
           width: '100%',
           height: '100%',
-          background: state === 'fullscreen' ? 'transparent' : '#ffffff'
+          background: 'transparent'
         }}>
           <BubbleChart
+            theme={theme}
+            config={config}
             data={data}
             xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
             yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
@@ -507,11 +542,13 @@ function App() {
         <div style={{ flex: 1, padding: '0px', display: 'flex', flexDirection: 'column' }}>
           <div style={{
             flex: 1,
-            background: '#ffffff',
+            background: 'transparent',
             borderRadius: '8px',
             minHeight: 0  // 防止 flex 布局出现不必要滚动
           }}>
             <BubbleChart
+              theme={theme}
+              config={config}
               data={data}
               xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
               yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
@@ -534,7 +571,7 @@ function App() {
         {/* 右侧：配置面板 */}
         <div style={{
           width: '340px',  // 固定宽度，不会随窗口大小变化
-          borderLeft: '1px solid #e0e0e0',  // 左侧边框分隔预览区域
+          borderLeft: '1px solid var(--semi-color-border)',  // 左侧边框分隔预览区域
           // background: '#fafafa',
           display: 'flex',
           flexDirection: 'column'
@@ -544,11 +581,11 @@ function App() {
 
             {/* 数据源选择：必须先选择数据源，才会显示其他字段 */}
             <div style={{ marginBottom: '20px' }}>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>数据源</Text>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>{t('label.dataSource')}</Text>
               <Select
                 value={config.dataSource}
                 onChange={(value) => handleConfigChange('dataSource', value)}
-                placeholder="请选择工作表"
+                placeholder={t('placeholder.selectWorksheet')}
                 style={{ width: '100%' }}
                 loading={tablesLoading}
                 filter
@@ -564,16 +601,16 @@ function App() {
             {/* 数据范围选择：仅在选中数据源后显示 */}
             {config.dataSource && (
               <div style={{ marginBottom: '20px' }}>
-                <Text strong style={{ display: 'block', marginBottom: 8 }}>数据范围</Text>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>{t('label.dataRange')}</Text>
                 <Select
                   value={config.viewId}
                   onChange={(value) => handleConfigChange('viewId', value)}
-                  placeholder="全部数据"
+                  placeholder={t('placeholder.allData')}
                   style={{ width: '100%' }}
                   loading={viewsLoading}
                   filter
                 >
-                  <Select.Option value={undefined}>全部数据</Select.Option>
+                  <Select.Option value={undefined}>{t('placeholder.allData')}</Select.Option>
                   {views.map(view => (
                     <Select.Option key={view.id} value={view.id}>
                       {view.name}
@@ -588,47 +625,47 @@ function App() {
               <>
                 {/* 横轴：必选，支持数字字段和单选字段（类目） */}
                 <FieldSelect
-                  label="横轴"
+                  label={t('label.xAxis')}
                   value={config.xField}
                   onChange={(value) => handleConfigChange('xField', value)}
                   fields={getCombinedFieldsWithType()}
                   loading={fieldsLoading}
-                  placeholder="选择字段"
+                  placeholder={t('placeholder.selectField')}
                 />
 
 
                 {/* 纵轴：必选，支持数字字段和单选字段（类目） */}
                 <FieldSelect
-                  label="纵轴"
+                  label={t('label.yAxis')}
                   value={config.yField}
                   onChange={(value) => handleConfigChange('yField', value)}
                   fields={getCombinedFieldsWithType()}
                   loading={fieldsLoading}
-                  placeholder="选择字段"
+                  placeholder={t('placeholder.selectField')}
                 />
 
 
                 {/* 气泡大小：可选，仅支持数值类型（包括数值公式） */}
                 <FieldSelect
-                  label="气泡大小"
+                  label={t('label.bubbleSize')}
                   value={config.sizeField}
                   onChange={(value) => handleConfigChange('sizeField', value)}
                   fields={numericFields.filter(f => f.type !== 3 || f.isNumericFormula)} // 3 is FieldType.Formula. Using literal or import if available. Better to use property check.
                   loading={fieldsLoading}
-                  placeholder="选择数值字段"
+                  placeholder={t('placeholder.selectNumericField')}
                   showClear={true}
                 />
 
                 {/* 气泡名称：选填，必须为文本字段 */}
                 <FieldSelect
-                  label="气泡名称"
+                  label={t('label.bubbleName')}
                   value={config.nameField}
                   onChange={(value) => handleConfigChange('nameField', value)}
                   fields={textFields}
                   loading={fieldsLoading}
-                  placeholder="选择文本字段"
+                  placeholder={t('placeholder.selectTextField')}
                   showClear={true}
-                  tooltip="如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据"
+                  tooltip={t('tooltip.bubbleName')}
                 />
 
                 {/* 多彩模式和名称常显复选框 */}
@@ -637,7 +674,7 @@ function App() {
                     checked={config.enableMultiColor || false}
                     onChange={(e: any) => handleConfigChange('enableMultiColor', e.target.checked)}
                   >
-                    <Text>多彩气泡</Text>
+                    <Text>{t('label.multiColor')}</Text>
                   </Checkbox>
 
                   {config.nameField && (
@@ -645,7 +682,7 @@ function App() {
                       checked={config.showLabel || false}
                       onChange={(e: any) => handleConfigChange('showLabel', e.target.checked)}
                     >
-                      <Text>名称常显</Text>
+                      <Text>{t('label.showLabel')}</Text>
                     </Checkbox>
                   )}
                 </div>
@@ -654,7 +691,7 @@ function App() {
           </div>
 
           {/* 底部按钮区域：固定在底部 */}
-          <div style={{ height: '40px', padding: '15px 20px', borderTop: '1px solid #e0e0e0', background: '#ffffff' }}>
+          <div style={{ height: '40px', padding: '15px 20px', borderTop: '1px solid var(--semi-color-border)', background: 'transparent' }}>
             <Button
               type="primary"
               theme="solid"
@@ -663,7 +700,7 @@ function App() {
               disabled={!config.dataSource || !config.xField || !config.yField}  // 必填项未选择时禁用
               onClick={handleSave}
             >
-              保存并查看
+              {t('button.saveAndView')}
             </Button>
           </div>
         </div>
@@ -688,7 +725,7 @@ function App() {
       height: '100vh',
       overflow: 'hidden',  // 防止出现滚动条
       position: 'relative',
-      borderTop: isConfig ? '1px solid #e0e0e0' : 'none', // 配置模式下添加顶部边框
+      borderTop: isConfig ? '1px solid var(--semi-color-border)' : 'none', // 配置模式下添加顶部边框
       boxSizing: 'border-box' // 确保边框包含在高度内，防止溢出
     }}>
       {renderContent()}
