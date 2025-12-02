@@ -202,7 +202,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           }
           return value
         }
-      }
+      },
+      scale: true
     }
 
     // 如果是类目轴，添加数据列表

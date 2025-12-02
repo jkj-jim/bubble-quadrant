@@ -85,6 +85,7 @@ export const useFields = (tableId?: string) => {
   const [categoryFields, setCategoryFields] = useState<FieldInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loadedTableId, setLoadedTableId] = useState<string | undefined>(undefined)
 
   /**
    * useEffect: tableId变化时获取字段列表
@@ -178,6 +179,7 @@ export const useFields = (tableId?: string) => {
         setNumericFields(numeric)
         setTextFields(text)
         setCategoryFields(category)
+        setLoadedTableId(tableId)
       } catch (err) {
         setError('获取字段失败：' + (err as Error).message)
         console.error('Failed to fetch fields:', err)
@@ -193,5 +195,5 @@ export const useFields = (tableId?: string) => {
    * 返回字段列表、分类字段、加载状态和错误信息
    * 分类字段包括：数字字段（用于数值计算）、文本字段（用于名称显示）、类目字段（可用于类目轴）
    */
-  return { fields, numericFields, textFields, categoryFields, loading, error }
+  return { fields, numericFields, textFields, categoryFields, loading, error, loadedTableId }
 }

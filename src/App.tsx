@@ -164,7 +164,7 @@ function App() {
   const [config, setConfig] = useState<BubbleChartConfig>({})
 
   // 根据选中的数据源表，获取数字字段、文本字段和类目字段列表
-  const { fields, numericFields, textFields, categoryFields, loading: fieldsLoading } = useFields(config.dataSource)
+  const { fields, numericFields, textFields, categoryFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource)
 
   // 获取数据源下的所有视图列表
   const { views, loading: viewsLoading } = useViews(config.dataSource)
@@ -306,7 +306,9 @@ function App() {
     const combinedFields = getCombinedFields()
 
     // 只有在字段加载完成时才执行逻辑（即使字段数量为0也要执行，用于清空无效字段）
-    if (!fieldsLoading) {
+    // 【关键修复】必须确保当前加载的字段确实属于当前选中的数据源
+    // 否则在切换数据源或初始加载时，可能会用旧的字段列表去校验新的配置，导致误判为字段不存在而重置
+    if (!fieldsLoading && loadedTableId === config.dataSource) {
       setConfig(prev => {
         const updates: Partial<BubbleChartConfig> = {}
 
@@ -361,7 +363,7 @@ function App() {
         return prev
       })
     }
-  }, [config.dataSource, fieldsLoading, numericFields, categoryFields, fields, config.xField, config.yField])
+  }, [config.dataSource, fieldsLoading, numericFields, categoryFields, fields, config.xField, config.yField, loadedTableId])
 
 
   /**
@@ -669,22 +671,43 @@ function App() {
                 />
 
                 {/* 多彩模式和名称常显复选框 */}
-                <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '24px' }}>
-                  <Checkbox
-                    checked={config.enableMultiColor || false}
-                    onChange={(e: any) => handleConfigChange('enableMultiColor', e.target.checked)}
-                  >
-                    <Text>{t('label.multiColor')}</Text>
-                  </Checkbox>
-
-                  {config.nameField && (
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
                     <Checkbox
-                      checked={config.showLabel || false}
-                      onChange={(e: any) => handleConfigChange('showLabel', e.target.checked)}
+                      checked={config.enableMultiColor || false}
+                      onChange={(e: any) => handleConfigChange('enableMultiColor', e.target.checked)}
                     >
-                      <Text>{t('label.showLabel')}</Text>
+                      <Text>{t('label.multiColor')}</Text>
                     </Checkbox>
-                  )}
+
+                    {config.nameField && (
+                      <Checkbox
+                        checked={config.showLabel || false}
+                        onChange={(e: any) => handleConfigChange('showLabel', e.target.checked)}
+                      >
+                        <Text>{t('label.showLabel')}</Text>
+                      </Checkbox>
+                    )}
+
+                    <div style={{ marginLeft: 'auto' }}>
+                      <a
+                        href="https://ai.feishu.cn/wiki/EbYewxi0yiUfd1kV8Jhccsp5nwh"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          color: 'var(--semi-color-info)',
+                          textDecoration: 'none',
+                          fontSize: '14px',
+                          fontWeight: 'normal',
+                          cursor: 'pointer'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-info-hover)'}
+                        onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-info)'}
+                      >
+                        帮助文档
+                      </a>
+                    </div>
+                  </div>
                 </div>
               </>
             )}

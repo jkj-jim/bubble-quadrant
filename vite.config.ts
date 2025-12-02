@@ -13,6 +13,11 @@ export default defineConfig({
   ],
   server: {
     host: '0.0.0.0',
+    cors: true,
+    headers: {
+      'Access-Control-Allow-Private-Network': 'true',
+      'Access-Control-Allow-Origin': '*',
+    },
   },
   build: {
     rollupOptions: {

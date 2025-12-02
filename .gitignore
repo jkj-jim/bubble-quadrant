@@ -9,7 +9,7 @@ lerna-debug.log*
 
 node_modules
 # dist
-dist-ssr
+# dist-ssr
 *.local
 
 # Editor directories and files
@@ -30,6 +30,5 @@ backup/*
 .agent/*
 飞书官方项目示例/*
 飞书官方资料/*
-需求.md
 FEISHU_DASHBOARD_TIPS.md
 PROJECT_LOG.md
