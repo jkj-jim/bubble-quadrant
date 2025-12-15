@@ -8,20 +8,39 @@
         "bubbleSize": "气泡大小",
         "bubbleName": "气泡名称",
         "multiColor": "多彩气泡",
-        "showLabel": "名称常显"
+        "showLabel": "名称常显",
+        "xAxisSplit": "横轴分割线",
+        "yAxisSplit": "纵轴分割线",
+        "quadrantName": "象限名称",
+        "backgroundColor": "背景色"
     },
     "placeholder": {
         "selectField": "请选择字段",
         "selectWorksheet": "请选择工作表",
         "allData": "全部数据",
         "selectNumericField": "选择数值字段",
-        "selectTextField": "选择文本字段"
+        "selectTextField": "选择文本字段",
+        "splitAtValue": "在此轴上的值",
+        "splitAfterOption": "分割线在此选项后",
+        "quadrantTL": "左上象限名称",
+        "quadrantLeft": "左象限名称",
+        "quadrantTop": "上象限名称",
+        "quadrantTR": "右上象限名称",
+        "quadrantRight": "右象限名称",
+        "quadrantBL": "左下象限名称",
+        "quadrantBottom": "下象限名称",
+        "quadrantBR": "右下象限名称"
     },
     "tooltip": {
         "bubbleName": "如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据"
     },
     "button": {
-        "saveAndView": "保存并查看"
+        "saveAndView": "保存并查看",
+        "median": "中位数",
+        "average": "平均值",
+        "fillMedian": "填入中位数",
+        "fillPrefix": "填入",
+        "selectMiddle": "选择中间项"
     },
     "chart": {
         "loading": "数据加载中...",
@@ -29,5 +48,12 @@
         "emptyDescription": "请检查所选的横轴和纵轴字段是否包含有效的数字数据",
         "defaultXAxis": "横轴",
         "defaultYAxis": "纵轴"
+    },
+    "tab": {
+        "bubble": "气泡",
+        "quadrant": "象限"
+    },
+    "message": {
+        "completeConfigFirst": "请先完成气泡配置"
     }
 }

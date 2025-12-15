@@ -52,6 +52,18 @@ export interface BubbleChartConfig {
   viewId?: string           // 数据范围视图ID，undefined 表示全部数据
   enableMultiColor?: boolean // 是否开启多彩模式
   showLabel?: boolean        // 是否常显名称标签
+
+  // 象限配置
+  xThreshold?: string        // X轴分割线值
+  yThreshold?: string        // Y轴分割线值
+  quadrantTLName?: string    // 左上象限名称
+  quadrantTLColor?: string   // 左上象限背景色
+  quadrantTRName?: string    // 右上象限名称
+  quadrantTRColor?: string   // 右上象限背景色
+  quadrantBLName?: string    // 左下象限名称
+  quadrantBLColor?: string   // 左下象限背景色
+  quadrantBRName?: string    // 右下象限名称
+  quadrantBRColor?: string   // 右下象限背景色
 }
 
 /**

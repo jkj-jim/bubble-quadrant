@@ -11,9 +11,11 @@
   will-change: filter;
   transition: filter 300ms;
 }
+
 .logo:hover {
   filter: drop-shadow(0 0 2em #646cffaa);
 }
+
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
 }
@@ -22,6 +24,7 @@
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -39,4 +42,26 @@
 
 .read-the-docs {
   color: #888;
+}
+
+/* Hover effect for text links - override Semi UI styles */
+.hover-link:hover,
+span.hover-link:hover,
+.semi-typography.hover-link:hover,
+.semi-typography .hover-link:hover {
+  color: var(--semi-color-primary) !important;
+}
+
+/* Tab styling - override Semi UI CSS variables */
+.custom-tabs {
+  --semi-color-text-2: var(--semi-color-text-0) !important;
+  /* Force default text to black */
+}
+
+/* Ensure active tab keeps its primary color if needed, or force it to black too if desired */
+.custom-tabs .semi-tabs-tab-active {
+  font-weight: 600;
+  /* Active tab uses primary color by default, which is fine.
+     If you wanted active tab to be black too, uncomment below: */
+  /* color: var(--semi-color-text-0) !important; */
 }

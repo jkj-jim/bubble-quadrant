@@ -8,20 +8,39 @@
         "bubbleSize": "Bubble Size",
         "bubbleName": "Bubble Name",
         "multiColor": "Multi-color",
-        "showLabel": "Show Labels"
+        "showLabel": "Show Labels",
+        "xAxisSplit": "X Split",
+        "yAxisSplit": "Y Split",
+        "quadrantName": "Quadrant Name",
+        "backgroundColor": "Background Color"
     },
     "placeholder": {
         "selectField": "Select Field",
         "selectWorksheet": "Select Worksheet",
         "allData": "All Data",
         "selectNumericField": "Select Numeric Field",
-        "selectTextField": "Select Text Field"
+        "selectTextField": "Select Text Field",
+        "splitAtValue": "Value on Axis",
+        "splitAfterOption": "Split after Option",
+        "quadrantTL": "Top-Left Name",
+        "quadrantLeft": "Left Name",
+        "quadrantTop": "Top Name",
+        "quadrantTR": "Top-Right Name",
+        "quadrantRight": "Right Name",
+        "quadrantBL": "Bottom-Left Name",
+        "quadrantBottom": "Bottom Name",
+        "quadrantBR": "Bottom-Right Name"
     },
     "tooltip": {
         "bubbleName": "If empty, all data is shown; if set, only data with this field non-empty is shown"
     },
     "button": {
-        "saveAndView": "Save & View"
+        "saveAndView": "Save & View",
+        "median": "Median",
+        "average": "Average",
+        "fillMedian": "Fill Median",
+        "fillPrefix": "Fill",
+        "selectMiddle": "Select Middle"
     },
     "chart": {
         "loading": "Loading...",
@@ -29,5 +48,12 @@
         "emptyDescription": "Please check if the selected X and Y axis fields contain valid numeric data",
         "defaultXAxis": "X Axis",
         "defaultYAxis": "Y Axis"
+    },
+    "tab": {
+        "bubble": "Bubble",
+        "quadrant": "Quadrant"
+    },
+    "message": {
+        "completeConfigFirst": "Please request bubble config first"
     }
 }
