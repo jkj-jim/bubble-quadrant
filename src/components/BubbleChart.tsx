@@ -24,6 +24,7 @@ import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
 import type { DataItem } from '../hooks/useDashboard'
 import type { BubbleChartConfig } from '../hooks/useDashboard'
+import { useCategoryAxisMapper } from '../hooks/useCategoryAxisMapper'
 import { Empty } from '@douyinfe/semi-ui'
 
 /**
@@ -307,6 +308,11 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
   }, [theme])
 
+  // ===== 类目轴映射器 =====
+  // 使用数值轴"伪装"类目轴，解决 markLine/markArea 无法精确定位的问题
+  const xAxisMapper = useCategoryAxisMapper(xAxisData)
+  const yAxisMapper = useCategoryAxisMapper(yAxisData)
+
   // ===== 象限 Label 状态管理 =====
   // 存储象限 label  // 移除 quadrantLabels 状态
   // const [quadrantLabels, setQuadrantLabels] = useState<QuadrantLabelInfo[]>([])
@@ -326,38 +332,46 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   /**
    * 计算分割线在坐标轴上的数值位置
    * 用于判断气泡所属象限和计算 label 位置
+   * 类目轴使用 mapper.getThresholdPosition() 精确定位到类目之间
    */
   const getThresholdValues = useCallback(() => {
     const xVal = config.xThreshold ? (
       xAxisType === 'category'
-        ? (xAxisData?.indexOf(config.xThreshold as string) ?? -1)
+        ? xAxisMapper.getThresholdPosition(config.xThreshold as string)  // 使用 mapper 精确定位
         : parseFloat(config.xThreshold as string)
     ) : null
 
     const yVal = config.yThreshold ? (
       yAxisType === 'category'
-        ? (yAxisData?.indexOf(config.yThreshold as string) ?? -1)
+        ? yAxisMapper.getThresholdPosition(config.yThreshold as string)  // 使用 mapper 精确定位
         : parseFloat(config.yThreshold as string)
     ) : null
 
     return { xVal, yVal }
-  }, [config.xThreshold, config.yThreshold, xAxisType, yAxisType, xAxisData, yAxisData])
+  }, [config.xThreshold, config.yThreshold, xAxisType, yAxisType, xAxisMapper, yAxisMapper])
 
 
 
   /**
    * 创建轴配置
-   * @param config 轴特定配置
+   * @param axisConfig 轴特定配置
+   *
+   * 类目轴处理策略（方案 B）：
+   * - 不使用 type: 'category'，而是使用 type: 'value'
+   * - 通过 mapper.getAxisConfig() 提供 min/max/interval/formatter
+   * - 这样可以让 markLine/markArea 精确定位到类目之间
    */
-  const createAxisConfig = (config: {
+  const createAxisConfig = (axisConfig: {
     type: 'value' | 'category'
     name: string
     data?: string[]
     isPercentage?: boolean
+    mapper?: ReturnType<typeof useCategoryAxisMapper>  // 类目轴映射器
+    otherAxisIsCategory?: boolean  // 另一个轴是否是类目轴
   }) => {
+    // 基础配置（两种轴类型共用）
     const baseConfig = {
-      type: config.type,
-      name: config.name,
+      name: axisConfig.name,
       nameLocation: 'end' as const,
       nameGap: 10,
       nameTextStyle: {
@@ -371,32 +385,51 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         }
       },
       axisLine: {
+        // 如果另一个轴是类目轴，则当前轴显示在边缘而非另一轴的 0 点位置
+        onZero: !axisConfig.otherAxisIsCategory,
         lineStyle: {
           color: chartStyles.colors.axisLine
         }
       },
       axisLabel: {
-        color: chartStyles.colors.axisLabel,
-        formatter: (value: any) => {
-          if (config.isPercentage && typeof value === 'number') {
-            return parseFloat((value * 100).toFixed(2)) + '%'
-          }
-          return value
-        }
+        color: chartStyles.colors.axisLabel
       },
       scale: true
     }
 
-    // 如果是类目轴，添加数据列表和 boundaryGap
-    if (config.type === 'category' && config.data) {
+    // 类目轴：使用数值轴"伪装"
+    if (axisConfig.type === 'category' && axisConfig.mapper && axisConfig.mapper.length > 0) {
+      const mapperConfig = axisConfig.mapper.getAxisConfig()
       return {
         ...baseConfig,
-        data: config.data,
-        boundaryGap: true  // 确保类目轴有边界间隙，这样 markLine 可以正确显示在类目之间
+        type: 'value' as const,  // 关键：使用数值轴
+        min: mapperConfig.min,
+        max: mapperConfig.max,
+        splitNumber: mapperConfig.splitNumber,
+        axisLabel: {
+          color: chartStyles.colors.axisLabel,
+          // 使用 mapper 的 formatter 将数值索引还原为类目文本
+          formatter: mapperConfig.axisLabel.formatter
+        },
+        // 禁用 scale，使用固定的 min/max
+        scale: false
       }
     }
 
-    return baseConfig
+    // 数值轴：标准配置
+    return {
+      ...baseConfig,
+      type: 'value' as const,
+      axisLabel: {
+        color: chartStyles.colors.axisLabel,
+        formatter: (value: any) => {
+          if (axisConfig.isPercentage && typeof value === 'number') {
+            return parseFloat((value * 100).toFixed(2)) + '%'
+          }
+          return value
+        }
+      }
+    }
   }
 
   useEffect(() => {
@@ -409,18 +442,46 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
   }, [])
 
+  // 使用 ResizeObserver 监听容器尺寸变化
   useEffect(() => {
-    // 只有当非加载状态且没有数据时，才清空图表
-    // 这样在 loading 期间会保留上一份数据的渲染结果，避免白屏闪烁
-    if (!loading && data.length === 0) {
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.clear()
+    const container = chartRef.current
+    if (!container) return
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        if (chartInstanceRef.current && width > 100 && height > 100) {
+          chartInstanceRef.current.resize()
+        }
       }
+    })
+
+    resizeObserver.observe(container)
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [])
+
+  useEffect(() => {
+    // loading 状态或无数据时，跳过渲染
+    // loading 时保留旧图表，避免闪烁；无数据时跳过渲染
+    if (loading) {
       return
     }
 
-    // 如果 echarts 实例不存在，立即初始化（关键修复点）
-    if (!chartInstanceRef.current) {
+    if (data.length === 0) {
+      // 不使用 clear()，避免导致后续 setOption 无法正常渲染
+      // 改为跳过渲染，保留上一帧画面
+      return
+    }
+
+    // 如果 echarts 实例不存在或者 DOM 已变化，重新初始化
+    if (!chartInstanceRef.current || chartInstanceRef.current.getDom() !== chartRef.current) {
+      // 如果有旧实例，先销毁
+      if (chartInstanceRef.current) {
+        chartInstanceRef.current.dispose()
+      }
       if (chartRef.current) {
         chartInstanceRef.current = echarts.init(chartRef.current)
       } else {
@@ -429,24 +490,29 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
     /**
      * 使用工厂函数生成X轴和Y轴配置
+     * 类目轴传入 mapper 以实现"伪装数值轴"效果
      */
     const xAxis = createAxisConfig({
       type: xAxisType,
       name: xFieldName || t('chart.defaultXAxis'),
       data: xAxisType === 'category' ? xAxisData : undefined,
-      isPercentage: xIsPercentage
+      isPercentage: xIsPercentage,
+      mapper: xAxisType === 'category' ? xAxisMapper : undefined,
+      otherAxisIsCategory: yAxisType === 'category'  // Y轴是类目轴时，X轴显示在边缘
     }) as any
 
     const yAxis = createAxisConfig({
       type: yAxisType,
       name: yFieldName || t('chart.defaultYAxis'),
       data: yAxisType === 'category' ? yAxisData : undefined,
-      isPercentage: yIsPercentage
+      isPercentage: yIsPercentage,
+      mapper: yAxisType === 'category' ? yAxisMapper : undefined,
+      otherAxisIsCategory: xAxisType === 'category'  // X轴是类目轴时，Y轴显示在边缘
     }) as any
 
     /**
      * 处理图表数据，根据轴类型选择不同的值
-     * 数值轴：直接使用数值
+     * 数值轴：直接使用数值（如果是字符串则尝试转换）
      * 类目轴：使用类目索引（指向 options 数组中的位置），但显示原始文本
      */
     const seriesData = data.map((item, index) => {
@@ -455,11 +521,13 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       let xDisplay: number | string
 
       if (xAxisType === 'category' && item.xCategoryIndex !== undefined) {
-        xValue = item.xCategoryIndex  // 使用索引，ECharts会自动映射到类目
+        xValue = item.xCategoryIndex  // 使用索引
         xDisplay = String(item.x)     // 显示原始文本
       } else {
-        xValue = item.x as number
-        xDisplay = item.x
+        // 数值轴：确保值是数字类型
+        const numX = typeof item.x === 'number' ? item.x : parseFloat(String(item.x))
+        xValue = isNaN(numX) ? 0 : numX
+        xDisplay = xValue
       }
 
       // Y轴值处理
@@ -470,8 +538,10 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         yValue = item.yCategoryIndex  // 使用索引
         yDisplay = String(item.y)     // 显示原始文本
       } else {
-        yValue = item.y as number
-        yDisplay = item.y
+        // 数值轴：确保值是数字类型
+        const numY = typeof item.y === 'number' ? item.y : parseFloat(String(item.y))
+        yValue = isNaN(numY) ? 0 : numY
+        yDisplay = yValue
       }
 
       // 根据 enableMultiColor 属性决定颜色方案：
@@ -592,10 +662,10 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
            * ===== 象限分割线配置 (markLine) =====
            * 用于在图表上绘制水平或垂直的分割线，将图表划分为不同象限
            *
-           * 坐标计算逻辑：
+           * 坐标计算逻辑（方案 B）：
            * - 数值轴：直接使用用户输入的数值
-           * - 类目轴：使用类目在数据数组中的索引位置
-           *   （注：ECharts 类目轴不支持在类目之间绘制 markLine，只能在类目位置上绘制）
+           * - 类目轴：使用 mapper.getThresholdPosition() 精确定位到类目之间
+           *   （现在类目轴已"伪装"为数值轴，可以使用小数索引）
            */
           markLine: {
             silent: true, // 不响应鼠标事件，避免干扰图表交互
@@ -610,14 +680,14 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
               // X轴分割线（垂直线）
               config.xThreshold ? {
                 xAxis: xAxisType === 'category'
-                  ? (xAxisData?.indexOf(config.xThreshold as string) ?? -1)  // 类目轴：使用索引
-                  : parseFloat(config.xThreshold as string)                   // 数值轴：直接使用数值
+                  ? xAxisMapper.getThresholdPosition(config.xThreshold as string)  // 使用 mapper 精确定位
+                  : parseFloat(config.xThreshold as string)
               } : null,
               // Y轴分割线（水平线）
               config.yThreshold ? {
                 yAxis: yAxisType === 'category'
-                  ? (yAxisData?.indexOf(config.yThreshold as string) ?? -1)  // 类目轴：使用索引
-                  : parseFloat(config.yThreshold as string)                   // 数值轴：直接使用数值
+                  ? yAxisMapper.getThresholdPosition(config.yThreshold as string)  // 使用 mapper 精确定位
+                  : parseFloat(config.yThreshold as string)
               } : null
             ].filter(Boolean) as any[]
           },
@@ -631,10 +701,10 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
            * - BL (Bottom-Left): 左下象限
            * - BR (Bottom-Right): 右下象限
            *
-           * 坐标计算说明：
+           * 坐标计算说明（方案 B）：
            * - 每个 markArea 由两个点定义：左下角和右上角
-           * - 数值轴使用极大/极小值（-1e308 / 1e308）确保覆盖整个可视区域
-           * - 类目轴使用 -0.5 到 length-0.5 尝试覆盖，但由于 ECharts 限制，边缘可能有少许空隙
+           * - 数值轴使用极大/极小值确保覆盖整个可视区域
+           * - 类目轴使用 mapper 的 min/max 确保完全覆盖
            */
           markArea: {
             silent: true, // 不响应鼠标事件
@@ -645,26 +715,24 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
               // 如果没有设置分割线，不显示任何区域
               if (!config.xThreshold && !config.yThreshold) return []
 
-              // 计算分割线在坐标轴上的位置
+              // 使用 mapper 计算分割线位置
               const xVal = config.xThreshold ? (
                 xAxisType === 'category'
-                  ? (xAxisData?.indexOf(config.xThreshold as string) ?? -1)
+                  ? xAxisMapper.getThresholdPosition(config.xThreshold as string)
                   : parseFloat(config.xThreshold as string)
               ) : null
 
               const yVal = config.yThreshold ? (
                 yAxisType === 'category'
-                  ? (yAxisData?.indexOf(config.yThreshold as string) ?? -1)
+                  ? yAxisMapper.getThresholdPosition(config.yThreshold as string)
                   : parseFloat(config.yThreshold as string)
               ) : null
 
-              // 计算轴边界值，用于定义区域的边界
-              // 数值轴：使用足够大的极值（避免 1e308 导致的渲染问题）
-              // 类目轴：使用 -0.5 到 data.length - 0.5，尽可能覆盖完整区域
-              const xMin = xAxisType === 'category' ? -0.5 : -1e10
-              const xMax = xAxisType === 'category' ? (xAxisData?.length ?? 0) - 0.5 : 1e10
-              const yMin = yAxisType === 'category' ? -0.5 : -1e10
-              const yMax = yAxisType === 'category' ? (yAxisData?.length ?? 0) - 0.5 : 1e10
+              // 使用 mapper 的边界值确保完全覆盖（仅当是类目轴且有数据时）
+              const xMin = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().min : -1e10
+              const xMax = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().max : 1e10
+              const yMin = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().min : -1e10
+              const yMax = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().max : 1e10
 
               // 仅 X 轴分割
               if (xVal !== null && yVal === null) {
@@ -779,7 +847,14 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       ]
     }
 
-    chartInstanceRef.current.setOption(option)
+    // 使用 notMerge: true 完全替换旧配置，避免轴类型切换时旧配置残留
+    try {
+      chartInstanceRef.current.setOption(option, { notMerge: true })
+      // 强制 resize 确保图表正确渲染
+      chartInstanceRef.current.resize()
+    } catch (e) {
+      console.error('[BubbleChart] setOption 错误', e)
+    }
 
     // ===== 计算象限 label 的像素位置 =====
     // 使用 ECharts 的 grid 区域边界来计算 label 位置

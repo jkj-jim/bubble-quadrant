@@ -452,7 +452,7 @@ function App() {
     setConfig(prev => {
       const newConfig: BubbleChartConfig = { ...prev, [key]: finalValue as any }
 
-      // 当数据源变化时，重置所有字段选择
+      // 当数据源变化时，重置所有字段选择和象限配置
       if (key === 'dataSource') {
         newConfig.viewId = undefined      // 重置为"全部数据"
         newConfig.xField = undefined       // 清空横轴
@@ -461,6 +461,17 @@ function App() {
         newConfig.nameField = undefined    // 清空气泡名称
         delete newConfig.xFieldType
         delete newConfig.yFieldType
+        // 清空象限配置
+        newConfig.xThreshold = undefined
+        newConfig.yThreshold = undefined
+        newConfig.quadrantTLName = undefined
+        newConfig.quadrantTLColor = undefined
+        newConfig.quadrantTRName = undefined
+        newConfig.quadrantTRColor = undefined
+        newConfig.quadrantBLName = undefined
+        newConfig.quadrantBLColor = undefined
+        newConfig.quadrantBRName = undefined
+        newConfig.quadrantBRColor = undefined
         return newConfig
       }
 
