@@ -73,7 +73,7 @@ const CHART_STYLE_CONFIG = {
     minSize: 10,
     maxSize: 80,
     defaultSize: 8,
-    opacity: 0.6,
+    opacity: 0.7,
     borderColor: '--semi-grey-9'
   },
   label: {
@@ -668,11 +668,12 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
            *   （现在类目轴已"伪装"为数值轴，可以使用小数索引）
            */
           markLine: {
+            z: 1, // 将分割线层级调低，使其显示在气泡下层
             silent: true, // 不响应鼠标事件，避免干扰图表交互
             symbol: ['none', 'none'], // 不显示箭头
             lineStyle: {
               type: 'solid',
-              color: '#999', // 分割线颜色
+              color: chartStyles.colors.splitLine, // 使用与网格线一致的动态颜色 (--semi-grey-1)
               width: 1
             },
             label: { show: false }, // 不显示分割线数值标签
@@ -707,6 +708,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
            * - 类目轴使用 mapper 的 min/max 确保完全覆盖
            */
           markArea: {
+            z: 0, // 将背景区域层级调到最低
             silent: true, // 不响应鼠标事件
             emphasis: {
               disabled: true // 防止响应 highlight/downplay
