@@ -296,7 +296,9 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         axisName: getTokenColor(CHART_STYLE_CONFIG.colors.axisName, '#646A73'),
         axisLine: getTokenColor(CHART_STYLE_CONFIG.colors.axisLine, '#BBBFC4'),
         axisLabel: getTokenColor(CHART_STYLE_CONFIG.colors.axisLabel, '#646A73'),
-        splitLine: getTokenColor(CHART_STYLE_CONFIG.colors.splitLine, '#F3F4F5'),
+        // splitLine 使用 grey-1 + 50% 透明度，介于 grey-0（太浅）和 grey-1（太深）之间
+        // Semi UI 的 grey 系列变量存储的是纯 RGB 数值（如 "230, 232, 234"）
+        splitLine: `rgba(${getComputedStyle(document.body).getPropertyValue(CHART_STYLE_CONFIG.colors.splitLine).trim() || '243, 244, 245'}, 0.5)`,
       },
       bubble: {
         ...CHART_STYLE_CONFIG.bubble,

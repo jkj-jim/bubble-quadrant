@@ -806,7 +806,7 @@ function App() {
                             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-info-hover)'}
                             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-info)'}
                           >
-                            帮助文档
+                            更多说明
                           </a>
                         </div>
                       </div>

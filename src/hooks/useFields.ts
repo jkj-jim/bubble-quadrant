@@ -127,6 +127,7 @@ export const useFields = (tableId?: string) => {
         fieldMetas.forEach(meta => {
           // 检查公式字段是否为数值类型（通过 formatter 判断）
           let isNumericFormula = false
+          let isTextFormula = false
           let isPercentage = false
           if (meta.type === FieldType.Formula) {
             // @ts-ignore - property 类型定义可能不完整
@@ -138,6 +139,9 @@ export const useFields = (tableId?: string) => {
               if (typeof formatter === 'string' && formatter.includes('%')) {
                 isPercentage = true
               }
+            } else {
+              // 没有 formatter 的公式字段视为文本类型
+              isTextFormula = true
             }
           }
 
@@ -148,6 +152,7 @@ export const useFields = (tableId?: string) => {
             isCategory: CATEGORY_FIELD_TYPES.includes(meta.type),
             isFormula: meta.type === FieldType.Formula,
             isNumericFormula,
+            isTextFormula,
             isPercentage
           }
 
@@ -168,6 +173,10 @@ export const useFields = (tableId?: string) => {
           }
           if (TEXT_FIELD_TYPES.includes(meta.type)) {
             text.push(fieldInfo)     // 文本字段：可用于name
+          }
+          // 文本类型的公式字段也加入文本字段列表，用于气泡名称选择
+          if (meta.type === FieldType.Formula && isTextFormula) {
+            text.push(fieldInfo)     // 文本公式字段：可用于name
           }
           if (CATEGORY_FIELD_TYPES.includes(meta.type)) {
             category.push(fieldInfo) // 类目字段：可用于x/y的类目轴
