@@ -26,9 +26,11 @@ node_modules
 .claude/*
 claude.md
 backup/*
+飞书官方项目示例/*
+
+
 .gemini/*
 .agent/*
-飞书官方项目示例/*
 飞书官方资料/*
 FEISHU_DASHBOARD_TIPS.md
 PROJECT_LOG.md

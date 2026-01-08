@@ -517,6 +517,9 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
      * 数值轴：直接使用数值（如果是字符串则尝试转换）
      * 类目轴：使用类目索引（指向 options 数组中的位置），但显示原始文本
      */
+    // emptyLabel 用于颜色分组时空值的显示文本
+    const emptyLabel = t('legend.empty')
+
     const seriesData = data.map((item, index) => {
       // X轴值处理
       let xValue: number | string
@@ -546,18 +549,52 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         yDisplay = yValue
       }
 
-      // 根据 enableMultiColor 属性决定颜色方案：
-      // 如果开启多彩模式 (enableMultiColor 为 true)，则从预定义的飞书风格色板 (colorPalette) 中根据当前数据项的索引 (index) 循环选择颜色，实现多彩气泡；
-      // 否则 (enableMultiColor 为 false)，所有气泡都使用默认的单色 #336DF4
-      const itemColor = enableMultiColor
-        ? colorPalette[index % colorPalette.length]
-        : '#336DF4'
+      // 颜色分组逻辑：
+      // 1. 如果配置了颜色分组（按象限或按字段），优先使用颜色分组
+      // 2. 如果开启多彩模式，按索引分配颜色
+      // 3. 否则使用默认单色
+      let itemColor = '#336DF4'
+      let colorGroupKey = ''
+
+      if (config.colorGroupType === 'quadrant') {
+        // 按象限分组：根据数据点所在象限决定颜色分组
+        // 使用 getThresholdValues 获取分割线位置，然后用 getQuadrantForBubble 判断象限
+        const { xVal, yVal } = getThresholdValues()
+        const xValNum = xAxisType === 'category' && item.xCategoryIndex !== undefined
+          ? item.xCategoryIndex
+          : xValue as number
+        const yValNum = yAxisType === 'category' && item.yCategoryIndex !== undefined
+          ? item.yCategoryIndex
+          : yValue as number
+        const quadrant = getQuadrantForBubble(xValNum, yValNum, xVal, yVal)
+        if (quadrant) {
+          // 根据象限获取象限名称作为分组 key
+          // 如果象限名称未配置（为空），则使用 emptyLabel（"空"）
+          switch (quadrant) {
+            case 'TL': colorGroupKey = config.quadrantTLName || emptyLabel; break
+            case 'TR': colorGroupKey = config.quadrantTRName || emptyLabel; break
+            case 'BL': colorGroupKey = config.quadrantBLName || emptyLabel; break
+            case 'BR': colorGroupKey = config.quadrantBRName || emptyLabel; break
+            case 'LEFT': colorGroupKey = config.quadrantTLName || emptyLabel; break
+            case 'RIGHT': colorGroupKey = config.quadrantTRName || emptyLabel; break
+            case 'TOP': colorGroupKey = config.quadrantTLName || emptyLabel; break
+            case 'BOTTOM': colorGroupKey = config.quadrantBLName || emptyLabel; break
+          }
+        }
+      } else if (config.colorGroupType === 'field' && item.colorGroupValue !== undefined) {
+        // 按字段分组
+        colorGroupKey = item.colorGroupValue || ''
+      } else if (enableMultiColor) {
+        // 多彩模式
+        itemColor = colorPalette[index % colorPalette.length]
+      }
 
       return {
         name: item.name,
         value: [xValue, yValue, item.size] as [number | string, number | string, number],
         // 使用原始文本作为显示值
         data: [xDisplay, yDisplay, item.size],
+        colorGroupKey,  // 存储颜色分组 key
         itemStyle: {
           color: itemColor,
           opacity: chartStyles.bubble.opacity,
@@ -565,6 +602,34 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         }
       }
     })
+
+    // ===== 颜色分组映射 =====
+    // 如果配置了颜色分组，构建分组 -> 颜色的映射
+    const colorGroupMap = new Map<string, { color: string, count: number }>()
+
+    if (config.colorGroupType) {
+      // 收集所有唯一的分组 key
+      seriesData.forEach((item: any) => {
+        const key = item.colorGroupKey || ''
+        const displayKey = key || emptyLabel  // 空值显示为"空"
+        if (!colorGroupMap.has(displayKey)) {
+          const colorIndex = colorGroupMap.size % colorPalette.length
+          colorGroupMap.set(displayKey, { color: colorPalette[colorIndex], count: 0 })
+        }
+        const groupInfo = colorGroupMap.get(displayKey)!
+        groupInfo.count++
+      })
+
+      // 更新 seriesData 中的颜色
+      seriesData.forEach((item: any) => {
+        const key = item.colorGroupKey || ''
+        const displayKey = key || emptyLabel
+        const groupInfo = colorGroupMap.get(displayKey)
+        if (groupInfo) {
+          item.itemStyle.color = groupInfo.color
+        }
+      })
+    }
 
     // 计算气泡大小的极值，用于线性映射
     const sizes = data.map(item => item.size)
@@ -576,6 +641,24 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       grid: chartStyles.grid,
       xAxis,
       yAxis,
+      // 图例配置：仅在开启颜色分组时显示
+      // 图例配置：仅在开启颜色分组时显示
+      legend: config.colorGroupType && colorGroupMap.size > 0 ? {
+        show: true,
+        type: 'scroll',
+        orient: 'horizontal',
+        top: 12,
+        left: 'center',
+        // 不使用 selectedMode: false，因为会禁用 hover 效果
+        // 改用事件监听 legendselectchanged 来阻止隐藏数据
+        data: Array.from(colorGroupMap.entries()).map(([key, info]) => ({
+          name: key,
+          itemStyle: { color: info.color }
+        })),
+        textStyle: {
+          color: chartStyles.colors.axisLabel
+        }
+      } : { show: false },
       tooltip: {//用于调整 hover 时的提示框
         trigger: 'item',
         formatter: (params: any) => {
@@ -606,249 +689,177 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           `
         }
       },
-      series: [
-        {
-          type: 'scatter',
-          symbolSize: (val: any) => {
-            // 如果没有配置大小字段，使用固定大小
-            if (!sizeFieldName) {
-              return chartStyles.bubble.defaultSize
-            }
+      series: (() => {
+        // 公共的 series 配置
+        const symbolSizeFn = (val: any) => {
+          if (!sizeFieldName) {
+            return chartStyles.bubble.defaultSize
+          }
+          const sizeVal = val[2] as number
+          if (maxSize === minSize) {
+            return (chartStyles.bubble.minSize + chartStyles.bubble.maxSize) / 2
+          }
+          const size = chartStyles.bubble.minSize + (sizeVal - minSize) / (maxSize - minSize) * (chartStyles.bubble.maxSize - chartStyles.bubble.minSize)
+          return size
+        }
 
-            // 获取原始大小值
-            const sizeVal = val[2] as number
+        const labelConfig = {
+          show: !!nameFieldName && !!showLabel,
+          formatter: '{b}',
+          position: chartStyles.label.position,
+          fontSize: chartStyles.label.fontSize,
+          opacity: chartStyles.label.opacity
+        }
 
-            // 如果所有数据大小相同，返回中间大小
-            if (maxSize === minSize) {
-              return (chartStyles.bubble.minSize + chartStyles.bubble.maxSize) / 2
-            }
-
-            // 线性映射公式: Pixel = MinPixel + (Val - MinVal) / (MaxVal - MinVal) * (MaxPixel - MinPixel)
-            const size = chartStyles.bubble.minSize + (sizeVal - minSize) / (maxSize - minSize) * (chartStyles.bubble.maxSize - chartStyles.bubble.minSize)
-            return size
-          },
-          label: {
-            show: !!nameFieldName && !!showLabel, // 只有当配置了气泡名称字段且开启了常显时才显示标签
-            formatter: '{b}',      // 显示数据项名称 (name)
-            position: chartStyles.label.position,
-            fontSize: chartStyles.label.fontSize,
-            // color: CHART_STYLES.label.color,
-            // textBorderWidth: 0,
-            opacity: chartStyles.label.opacity
-          },
-          labelLayout: {
-            hideOverlap: true      // 自动隐藏重叠的标签
-          },
-          data: seriesData,
-          emphasis: {
-            focus: 'self',  // 聚焦当前项，其他项自动进入 blur 状态
-            label: {
-              show: true    // hover 时强制显示当前项的标签
-            },
-            itemStyle: {
-              opacity: chartStyles.emphasis.opacity,
-              shadowBlur: chartStyles.emphasis.shadowBlur,
-              shadowColor: chartStyles.emphasis.shadowColor
-            }
-          },
-          blur: {
-            label: {
-              show: false    // hover 时隐藏其他气泡的标签
-            },
-            itemStyle: {
-              opacity: 0.15,  // 降低其他气泡的透明度
-              color: '#ccc'   // 其他气泡变灰
-            }
-          },
-          /**
-           * ===== 象限分割线配置 (markLine) =====
-           * 用于在图表上绘制水平或垂直的分割线，将图表划分为不同象限
-           *
-           * 坐标计算逻辑（方案 B）：
-           * - 数值轴：直接使用用户输入的数值
-           * - 类目轴：使用 mapper.getThresholdPosition() 精确定位到类目之间
-           *   （现在类目轴已"伪装"为数值轴，可以使用小数索引）
-           */
-          markLine: {
-            z: 1, // 将分割线层级调低，使其显示在气泡下层
-            silent: true, // 不响应鼠标事件，避免干扰图表交互
-            symbol: ['none', 'none'], // 不显示箭头
-            lineStyle: {
-              type: 'solid',
-              color: chartStyles.colors.splitLine, // 使用与网格线一致的动态颜色 (--semi-grey-1)
-              width: 1
-            },
-            label: { show: false }, // 不显示分割线数值标签
-            data: [
-              // X轴分割线（垂直线）
-              config.xThreshold ? {
-                xAxis: xAxisType === 'category'
-                  ? xAxisMapper.getThresholdPosition(config.xThreshold as string)  // 使用 mapper 精确定位
-                  : parseFloat(config.xThreshold as string)
-              } : null,
-              // Y轴分割线（水平线）
-              config.yThreshold ? {
-                yAxis: yAxisType === 'category'
-                  ? yAxisMapper.getThresholdPosition(config.yThreshold as string)  // 使用 mapper 精确定位
-                  : parseFloat(config.yThreshold as string)
-              } : null
-            ].filter(Boolean) as any[]
-          },
-          /**
-           * ===== 象限背景区域配置 (markArea) =====
-           * 用于在分割线划分的各个象限中填充不同的背景颜色
-           *
-           * 区域命名规则：
-           * - TL (Top-Left): 左上象限
-           * - TR (Top-Right): 右上象限
-           * - BL (Bottom-Left): 左下象限
-           * - BR (Bottom-Right): 右下象限
-           *
-           * 坐标计算说明（方案 B）：
-           * - 每个 markArea 由两个点定义：左下角和右上角
-           * - 数值轴使用极大/极小值确保覆盖整个可视区域
-           * - 类目轴使用 mapper 的 min/max 确保完全覆盖
-           */
-          markArea: {
-            z: 0, // 将背景区域层级调到最低
-            silent: true, // 不响应鼠标事件
-            emphasis: {
-              disabled: true // 防止响应 highlight/downplay
-            },
-            data: (() => {
-              // 如果没有设置分割线，不显示任何区域
-              if (!config.xThreshold && !config.yThreshold) return []
-
-              // 使用 mapper 计算分割线位置
-              const xVal = config.xThreshold ? (
-                xAxisType === 'category'
-                  ? xAxisMapper.getThresholdPosition(config.xThreshold as string)
-                  : parseFloat(config.xThreshold as string)
-              ) : null
-
-              const yVal = config.yThreshold ? (
-                yAxisType === 'category'
-                  ? yAxisMapper.getThresholdPosition(config.yThreshold as string)
-                  : parseFloat(config.yThreshold as string)
-              ) : null
-
-              // 使用 mapper 的边界值确保完全覆盖（仅当是类目轴且有数据时）
-              const xMin = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().min : -1e10
-              const xMax = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().max : 1e10
-              const yMin = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().min : -1e10
-              const yMax = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().max : 1e10
-
-              // 仅 X 轴分割
-              if (xVal !== null && yVal === null) {
-                return [
-                  // 左区域
-                  [
-                    {
-                      name: config.quadrantTLName || '',
-                      itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'LEFT' ? 'transparent' : (config.quadrantTLColor || 'transparent'), opacity: 0.1 },
-                      label: { show: false },  // 禁用原生 label，改用 React DOM 渲染
-                      xAxis: xMin, yAxis: yMin
-                    },
-                    {
-                      xAxis: xVal, yAxis: yMax
-                    }
-                  ],
-                  // 右区域
-                  [
-                    {
-                      name: config.quadrantTRName || '',
-                      itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'RIGHT' ? 'transparent' : (config.quadrantTRColor || 'transparent'), opacity: 0.1 },
-                      label: { show: false },
-                      xAxis: xVal, yAxis: yMin
-                    },
-                    {
-                      xAxis: xMax, yAxis: yMax
-                    }
-                  ]
-                ]
-              }
-
-              // 仅 Y 轴分割
-              if (xVal === null && yVal !== null) {
-                return [
-                  // 上区域
-                  [
-                    {
-                      name: config.quadrantTLName || '',
-                      itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'TOP' ? 'transparent' : (config.quadrantTLColor || 'transparent'), opacity: 0.1 },
-                      label: { show: false },
-                      xAxis: xMin, yAxis: yVal
-                    },
-                    {
-                      xAxis: xMax, yAxis: yMax
-                    }
-                  ],
-                  // 下区域
-                  [
-                    {
-                      name: config.quadrantBLName || '',
-                      itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'BOTTOM' ? 'transparent' : (config.quadrantBLColor || 'transparent'), opacity: 0.1 },
-                      label: { show: false },
-                      xAxis: xMin, yAxis: yMin
-                    },
-                    {
-                      xAxis: xMax, yAxis: yVal
-                    }
-                  ]
-                ]
-              }
-
-              // 双轴分割 (4个象限)
-              if (xVal !== null && yVal !== null) {
-                return [
-                  // 左上 (TL)
-                  [
-                    {
-                      name: config.quadrantTLName || '',
-                      itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'TL' ? 'transparent' : (config.quadrantTLColor || 'transparent'), opacity: 0.1 },
-                      label: { show: false },
-                      xAxis: xMin, yAxis: yVal
-                    },
-                    { xAxis: xVal, yAxis: yMax }
-                  ],
-                  // 右上 (TR)
-                  [
-                    {
-                      name: config.quadrantTRName || '',
-                      itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'TR' ? 'transparent' : (config.quadrantTRColor || 'transparent'), opacity: 0.1 },
-                      label: { show: false },
-                      xAxis: xVal, yAxis: yVal
-                    },
-                    { xAxis: xMax, yAxis: yMax }
-                  ],
-                  // 左下 (BL)
-                  [
-                    {
-                      name: config.quadrantBLName || '',
-                      itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'BL' ? 'transparent' : (config.quadrantBLColor || 'transparent'), opacity: 0.1 },
-                      label: { show: false },
-                      xAxis: xMin, yAxis: yMin
-                    },
-                    { xAxis: xVal, yAxis: yVal }
-                  ],
-                  // 右下 (BR)
-                  [
-                    {
-                      name: config.quadrantBRName || '',
-                      itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'BR' ? 'transparent' : (config.quadrantBRColor || 'transparent'), opacity: 0.1 },
-                      label: { show: false },
-                      xAxis: xVal, yAxis: yMin
-                    },
-                    { xAxis: xMax, yAxis: yVal }
-                  ]
-                ]
-              }
-
-              return []
-            })()
+        const emphasisConfig = {
+          focus: 'self' as const,
+          label: { show: true },
+          itemStyle: {
+            opacity: chartStyles.emphasis.opacity,
+            shadowBlur: chartStyles.emphasis.shadowBlur,
+            shadowColor: chartStyles.emphasis.shadowColor
           }
         }
-      ]
+
+        const blurConfig = {
+          label: { show: false },
+          itemStyle: {
+            opacity: 0.15,
+            color: '#ccc'
+          }
+        }
+
+        // markLine 配置
+        const markLineConfig = {
+          z: 1,
+          silent: true,
+          symbol: ['none', 'none'],
+          lineStyle: {
+            type: 'solid' as const,
+            color: chartStyles.colors.splitLine,
+            width: 1
+          },
+          label: { show: false },
+          data: [
+            config.xThreshold ? {
+              xAxis: xAxisType === 'category'
+                ? xAxisMapper.getThresholdPosition(config.xThreshold as string)
+                : parseFloat(config.xThreshold as string)
+            } : null,
+            config.yThreshold ? {
+              yAxis: yAxisType === 'category'
+                ? yAxisMapper.getThresholdPosition(config.yThreshold as string)
+                : parseFloat(config.yThreshold as string)
+            } : null
+          ].filter(Boolean) as any[]
+        }
+
+        // markArea 配置
+        const markAreaConfig = {
+          z: 0,
+          silent: true,
+          emphasis: { disabled: true },
+          data: (() => {
+            if (!config.xThreshold && !config.yThreshold) return []
+
+            const xVal = config.xThreshold ? (
+              xAxisType === 'category'
+                ? xAxisMapper.getThresholdPosition(config.xThreshold as string)
+                : parseFloat(config.xThreshold as string)
+            ) : null
+
+            const yVal = config.yThreshold ? (
+              yAxisType === 'category'
+                ? yAxisMapper.getThresholdPosition(config.yThreshold as string)
+                : parseFloat(config.yThreshold as string)
+            ) : null
+
+            const xMin = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().min : -1e10
+            const xMax = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().max : 1e10
+            const yMin = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().min : -1e10
+            const yMax = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().max : 1e10
+
+            // 仅 X 轴分割
+            if (xVal !== null && yVal === null) {
+              return [
+                [{ name: config.quadrantTLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'LEFT' ? 'transparent' : (config.quadrantTLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yMin }, { xAxis: xVal, yAxis: yMax }],
+                [{ name: config.quadrantTRName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'RIGHT' ? 'transparent' : (config.quadrantTRColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xVal, yAxis: yMin }, { xAxis: xMax, yAxis: yMax }]
+              ]
+            }
+
+            // 仅 Y 轴分割
+            if (xVal === null && yVal !== null) {
+              return [
+                [{ name: config.quadrantTLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'TOP' ? 'transparent' : (config.quadrantTLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yVal }, { xAxis: xMax, yAxis: yMax }],
+                [{ name: config.quadrantBLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'BOTTOM' ? 'transparent' : (config.quadrantBLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yMin }, { xAxis: xMax, yAxis: yVal }]
+              ]
+            }
+
+            // 双轴分割（4 象限）
+            if (xVal !== null && yVal !== null) {
+              return [
+                [{ name: config.quadrantTLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'TL' ? 'transparent' : (config.quadrantTLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yVal }, { xAxis: xVal, yAxis: yMax }],
+                [{ name: config.quadrantTRName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'TR' ? 'transparent' : (config.quadrantTRColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xVal, yAxis: yVal }, { xAxis: xMax, yAxis: yMax }],
+                [{ name: config.quadrantBLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'BL' ? 'transparent' : (config.quadrantBLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yMin }, { xAxis: xVal, yAxis: yVal }],
+                [{ name: config.quadrantBRName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'BR' ? 'transparent' : (config.quadrantBRColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xVal, yAxis: yMin }, { xAxis: xMax, yAxis: yVal }]
+              ]
+            }
+
+            return []
+          })()
+        }
+
+        // 如果开启了颜色分组，按分组拆分为多个 series
+        if (config.colorGroupType && colorGroupMap.size > 0) {
+          const seriesList: any[] = []
+
+          // 首先添加一个专门用于 markLine 和 markArea 的空数据 series
+          // 这个 series 不会被图例控制，确保象限背景始终显示
+          seriesList.push({
+            name: '__quadrant_bg__',  // 内部名称，不会显示在图例中
+            type: 'scatter',
+            data: [],  // 空数据
+            markLine: markLineConfig,
+            markArea: markAreaConfig
+          })
+
+          colorGroupMap.forEach((info, groupName) => {
+            const groupData = seriesData.filter((item: any) => {
+              const key = item.colorGroupKey || ''
+              const displayKey = key || emptyLabel
+              return displayKey === groupName
+            })
+
+            seriesList.push({
+              name: groupName,  // series 名称用于图例
+              type: 'scatter',
+              symbolSize: symbolSizeFn,
+              label: labelConfig,
+              labelLayout: { hideOverlap: true },
+              data: groupData,
+              itemStyle: { color: info.color },
+              emphasis: emphasisConfig,
+              blur: blurConfig
+              // 不在数据 series 上添加 markLine 和 markArea
+            })
+          })
+
+          return seriesList
+        }
+
+        // 未开启颜色分组，使用单个 series
+        return [{
+          type: 'scatter',
+          symbolSize: symbolSizeFn,
+          label: labelConfig,
+          labelLayout: { hideOverlap: true },
+          data: seriesData,
+          emphasis: emphasisConfig,
+          blur: blurConfig,
+          markLine: markLineConfig,
+          markArea: markAreaConfig
+        }]
+      })()
     }
 
     // 使用 notMerge: true 完全替换旧配置，避免轴类型切换时旧配置残留
@@ -1150,34 +1161,51 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
 
         setHoveredQuadrant(key)
 
-        // Highlight
-        const bubbleIndicesInQuadrant: number[] = []
-        data.forEach((item, index) => {
-          const xValue = xAxisType === 'category' && item.xCategoryIndex !== undefined
-            ? item.xCategoryIndex
-            : item.x as number
-          const yValue = yAxisType === 'category' && item.yCategoryIndex !== undefined
-            ? item.yCategoryIndex
-            : item.y as number
+        // Highlight - 针对每个 series 分别计算该象限内的数据点索引
+        const seriesArr = chart.getOption().series as any[]
+        const seriesCount = seriesArr?.length || 1
 
-          if (getQuadrantForBubble(xValue, yValue, xVal, yVal) === key) {
-            bubbleIndicesInQuadrant.push(index)
-          }
-        })
+        let hasHighlight = false
+        for (let si = 0; si < seriesCount; si++) {
+          const seriesData = seriesArr[si]?.data || []
+          const indicesInQuadrant: number[] = []
 
-        if (bubbleIndicesInQuadrant.length > 0) {
-          chart.dispatchAction({
-            type: 'highlight',
-            seriesIndex: 0,
-            dataIndex: bubbleIndicesInQuadrant
+          seriesData.forEach((item: any, index: number) => {
+            // 从 value 中读取坐标值 [x, y, size]
+            const xValue = item.value?.[0] ?? 0
+            const yValue = item.value?.[1] ?? 0
+
+            if (getQuadrantForBubble(xValue, yValue, xVal, yVal) === key) {
+              indicesInQuadrant.push(index)
+            }
           })
-        } else {
+
+          if (indicesInQuadrant.length > 0) {
+            hasHighlight = true
+            chart.dispatchAction({
+              type: 'highlight',
+              seriesIndex: si,
+              dataIndex: indicesInQuadrant
+            })
+          }
+        }
+
+        if (!hasHighlight) {
           // Empty quadrant, downplay all
           // chart.dispatchAction({ type: 'downplay', seriesIndex: 0 }) 
           // 用户反馈“hover 象限标题的时候，当前象限的背景色还是要展示的”
           // Downplay 会导致整个 series 变淡，但 markArea 即使在 downplay 下也应该受 opacity 控制
           // 保持 downplay 逻辑，确保未选中气泡变淡
-          chart.dispatchAction({ type: 'downplay', seriesIndex: 0 })
+          // 空象限：hover 时也要弱化所有气泡
+          // 使用 highlight 空数组来触发所有气泡进入 blur 状态
+          const seriesCount = (chart.getOption().series as any[])?.length || 1
+          for (let si = 0; si < seriesCount; si++) {
+            chart.dispatchAction({
+              type: 'highlight',
+              seriesIndex: si,
+              dataIndex: []  // 空数组：不高亮任何数据点，所有数据进入 blur 状态
+            })
+          }
         }
       }
     }
@@ -1186,7 +1214,11 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       if (params.componentType === 'graphic' && params.info && params.info.key) {
         setQuadrantTooltip(prev => ({ ...prev, visible: false }))
         setHoveredQuadrant(null)
-        chart.dispatchAction({ type: 'downplay', seriesIndex: 0 })
+        // Downplay 所有 series
+        const seriesCount = (chart.getOption().series as any[])?.length || 1
+        for (let si = 0; si < seriesCount; si++) {
+          chart.dispatchAction({ type: 'downplay', seriesIndex: si })
+        }
       }
     }
 

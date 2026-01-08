@@ -20,6 +20,7 @@ export interface DataItem {
   size: number
   xCategoryIndex?: number   // X轴类目索引（类目轴时使用，指向 options 数组中的位置）
   yCategoryIndex?: number   // Y轴类目索引（类目轴时使用）
+  colorGroupValue?: string  // 颜色分组值（用于按字段值分组时的原始值）
 }
 
 /**
@@ -181,6 +182,7 @@ export const useData3 = (
         xFieldType,
         yFieldType,
         viewId, // 获取 viewId
+        colorGroupField, // 获取颜色分组字段
       } = currentConfig
 
       if (!dataSource || !xField || !yField) {
@@ -271,6 +273,11 @@ export const useData3 = (
 
             if (item) {
               item.name = name
+              // 获取颜色分组字段的值
+              if (colorGroupField) {
+                const colorVal = record.fields[colorGroupField]
+                item.colorGroupValue = extractTextFromField(colorVal)
+              }
               processedData.push(item)
             }
           }
@@ -289,6 +296,11 @@ export const useData3 = (
             )
 
             if (item) {
+              // 获取颜色分组字段的值
+              if (colorGroupField) {
+                const colorVal = record.fields[colorGroupField]
+                item.colorGroupValue = extractTextFromField(colorVal)
+              }
               processedData.push(item)
             }
           }

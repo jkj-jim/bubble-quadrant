@@ -64,6 +64,18 @@ const CATEGORY_FIELD_TYPES = [
 ]
 
 /**
+ * COLOR_GROUP_FIELD_TYPES - 支持颜色分组的字段类型
+ * 用途：用于按字段值对气泡进行颜色分组
+ * 支持：单选、公式、文本类型
+ * 注意：日期类型暂不支持，因为需要时间戳转换
+ */
+const COLOR_GROUP_FIELD_TYPES = [
+  FieldType.SingleSelect, // 单选
+  FieldType.Formula,      // 公式
+  FieldType.Text,         // 文本
+]
+
+/**
  * useFields - 字段hook
  * 功能：根据tableId获取指定工作表的所有字段，并分类为数字字段、文本字段和类目字段
  *
@@ -83,6 +95,7 @@ export const useFields = (tableId?: string) => {
   const [numericFields, setNumericFields] = useState<FieldInfo[]>([])
   const [textFields, setTextFields] = useState<FieldInfo[]>([])
   const [categoryFields, setCategoryFields] = useState<FieldInfo[]>([])
+  const [colorGroupFields, setColorGroupFields] = useState<FieldInfo[]>([])  // 支持颜色分组的字段
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadedTableId, setLoadedTableId] = useState<string | undefined>(undefined)
@@ -122,6 +135,7 @@ export const useFields = (tableId?: string) => {
         const numeric: FieldInfo[] = []
         const text: FieldInfo[] = []
         const category: FieldInfo[] = []
+        const colorGroup: FieldInfo[] = []  // 支持颜色分组的字段
 
         // 遍历所有字段，按类型分类
         fieldMetas.forEach(meta => {
@@ -181,6 +195,9 @@ export const useFields = (tableId?: string) => {
           if (CATEGORY_FIELD_TYPES.includes(meta.type)) {
             category.push(fieldInfo) // 类目字段：可用于x/y的类目轴
           }
+          if (COLOR_GROUP_FIELD_TYPES.includes(meta.type)) {
+            colorGroup.push(fieldInfo) // 颜色分组字段：可用于按字段值分组
+          }
         })
 
         // 更新状态
@@ -188,6 +205,7 @@ export const useFields = (tableId?: string) => {
         setNumericFields(numeric)
         setTextFields(text)
         setCategoryFields(category)
+        setColorGroupFields(colorGroup)
         setLoadedTableId(tableId)
       } catch (err) {
         setError('获取字段失败：' + (err as Error).message)
@@ -204,5 +222,5 @@ export const useFields = (tableId?: string) => {
    * 返回字段列表、分类字段、加载状态和错误信息
    * 分类字段包括：数字字段（用于数值计算）、文本字段（用于名称显示）、类目字段（可用于类目轴）
    */
-  return { fields, numericFields, textFields, categoryFields, loading, error, loadedTableId }
+  return { fields, numericFields, textFields, categoryFields, colorGroupFields, loading, error, loadedTableId }
 }

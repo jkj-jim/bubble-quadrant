@@ -64,6 +64,10 @@ export interface BubbleChartConfig {
   quadrantBLColor?: string   // 左下象限背景色
   quadrantBRName?: string    // 右下象限名称
   quadrantBRColor?: string   // 右下象限背景色
+
+  // 高级配置 - 颜色分组
+  colorGroupType?: 'quadrant' | 'field'  // 分组类型：按象限或按字段
+  colorGroupField?: string                // 分组字段ID（当 colorGroupType 为 'field' 时）
 }
 
 /**

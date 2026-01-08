@@ -235,8 +235,8 @@ function App() {
   // 当前配置状态（数据源、字段选择等）
   const [config, setConfig] = useState<BubbleChartConfig>({})
 
-  // 根据选中的数据源表，获取数字字段、文本字段和类目字段列表
-  const { fields, numericFields, textFields, categoryFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource)
+  // 根据选中的数据源表，获取数字字段、文本字段、类目字段和颜色分组字段列表
+  const { fields, numericFields, textFields, categoryFields, colorGroupFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource)
 
   // 获取数据源下的所有视图列表
   const { views, loading: viewsLoading } = useViews(config.dataSource)
@@ -472,6 +472,9 @@ function App() {
         newConfig.quadrantBLColor = undefined
         newConfig.quadrantBRName = undefined
         newConfig.quadrantBRColor = undefined
+        // 清空颜色分组配置
+        newConfig.colorGroupType = undefined
+        newConfig.colorGroupField = undefined
         return newConfig
       }
 
@@ -1122,6 +1125,64 @@ function App() {
                         )}
                       </div>
                     )}
+                  </div>
+                )}
+              </TabPane>
+              <TabPane tab={t('tab.advanced')} itemKey="advanced">
+                {(!config.dataSource || !config.xField || !config.yField) ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--semi-color-text-1)' }}>
+                    {t('message.completeConfigFirst')}
+                  </div>
+                ) : (
+                  <div>
+                    {/* 颜色分组选择器 */}
+                    <div style={{ marginBottom: '20px' }}>
+                      {/* 标题行：包含标签和清除按钮 */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text strong>{t('label.colorGroup')}</Text>
+                        {/* 已选择时显示清除按钮 */}
+                        {(config.colorGroupType) && (
+                          <span
+                            style={{ cursor: 'pointer', fontSize: '12px', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
+                            onClick={() => {
+                              handleConfigChange('colorGroupType', undefined)
+                              handleConfigChange('colorGroupField', undefined)
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
+                          >
+                            {t('label.clear')}
+                          </span>
+                        )}
+                      </div>
+                      <Select
+                        value={config.colorGroupType === 'quadrant' ? '__quadrant__' : config.colorGroupField}
+                        onChange={(value) => {
+                          if (value === '__quadrant__') {
+                            handleConfigChange('colorGroupType', 'quadrant')
+                            handleConfigChange('colorGroupField', undefined)
+                          } else if (value) {
+                            handleConfigChange('colorGroupType', 'field')
+                            handleConfigChange('colorGroupField', value)
+                          } else {
+                            handleConfigChange('colorGroupType', undefined)
+                            handleConfigChange('colorGroupField', undefined)
+                          }
+                        }}
+                        placeholder={t('placeholder.selectColorGroup')}
+                        style={{ width: '100%' }}
+                        filter
+                      >
+                        {/* 如果配置了象限（有分割线），显示象限选项 */}
+                        {(config.xThreshold || config.yThreshold) && (
+                          <Select.Option value="__quadrant__">{t('option.quadrant')}</Select.Option>
+                        )}
+                        {/* 可选的字段选项 */}
+                        {colorGroupFields.map(field => (
+                          <Select.Option key={field.id} value={field.id}>{field.name}</Select.Option>
+                        ))}
+                      </Select>
+                    </div>
                   </div>
                 )}
               </TabPane>

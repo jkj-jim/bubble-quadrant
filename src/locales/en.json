@@ -12,7 +12,8 @@
         "xAxisSplit": "X Split",
         "yAxisSplit": "Y Split",
         "quadrantName": "Quadrant Name",
-        "backgroundColor": "Background Color"
+        "backgroundColor": "Background Color",
+        "colorGroup": "Color Group"
     },
     "placeholder": {
         "selectField": "Select Field",
@@ -29,7 +30,8 @@
         "quadrantRight": "Right Name",
         "quadrantBL": "Bottom-Left Name",
         "quadrantBottom": "Bottom Name",
-        "quadrantBR": "Bottom-Right Name"
+        "quadrantBR": "Bottom-Right Name",
+        "selectColorGroup": "Select Grouping"
     },
     "tooltip": {
         "bubbleName": "If empty, all data is shown; if set, only data with this field non-empty is shown"
@@ -51,7 +53,14 @@
     },
     "tab": {
         "bubble": "Bubble",
+        "quadrant": "Quadrant",
+        "advanced": "Advanced"
+    },
+    "option": {
         "quadrant": "Quadrant"
+    },
+    "legend": {
+        "empty": "Empty"
     },
     "message": {
         "completeConfigFirst": "Please request bubble config first"

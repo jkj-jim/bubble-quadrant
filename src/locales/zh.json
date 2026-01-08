@@ -12,7 +12,8 @@
         "xAxisSplit": "横轴分割线",
         "yAxisSplit": "纵轴分割线",
         "quadrantName": "象限名称",
-        "backgroundColor": "背景色"
+        "backgroundColor": "背景色",
+        "colorGroup": "气泡分组"
     },
     "placeholder": {
         "selectField": "请选择字段",
@@ -29,7 +30,8 @@
         "quadrantRight": "右象限名称",
         "quadrantBL": "左下象限名称",
         "quadrantBottom": "下象限名称",
-        "quadrantBR": "右下象限名称"
+        "quadrantBR": "右下象限名称",
+        "selectColorGroup": "选择分组方式"
     },
     "tooltip": {
         "bubbleName": "如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据"
@@ -51,7 +53,14 @@
     },
     "tab": {
         "bubble": "气泡",
+        "quadrant": "象限",
+        "advanced": "高级"
+    },
+    "option": {
         "quadrant": "象限"
+    },
+    "legend": {
+        "empty": "空"
     },
     "message": {
         "completeConfigFirst": "请先完成气泡配置"
