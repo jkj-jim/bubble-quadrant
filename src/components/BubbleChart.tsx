@@ -25,7 +25,7 @@ import type { EChartsOption } from 'echarts'
 import type { DataItem } from '../hooks/useDashboard'
 import type { BubbleChartConfig } from '../hooks/useDashboard'
 import { useCategoryAxisMapper } from '../hooks/useCategoryAxisMapper'
-import { Empty } from '@douyinfe/semi-ui'
+import { Empty, Toast } from '@douyinfe/semi-ui'
 
 /**
  * BubbleChartProps - 气泡图组件属性
@@ -143,6 +143,37 @@ const calculateMedian = (numbers: number[]): number => {
   return sorted.length % 2 !== 0
     ? sorted[mid]
     : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/**
+ * 复制文本到剪贴板（兼容飞书 iframe 环境）
+ * 使用传统的 textarea + execCommand 方法作为主要方案
+ */
+const copyToClipboard = (text: string): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    // 创建临时 textarea 元素
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    textarea.style.top = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+
+    try {
+      const success = document.execCommand('copy')
+      document.body.removeChild(textarea)
+      if (success) {
+        resolve()
+      } else {
+        reject(new Error('execCommand failed'))
+      }
+    } catch (err) {
+      document.body.removeChild(textarea)
+      reject(err)
+    }
+  })
 }
 
 /**
@@ -1423,13 +1454,97 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       }
     }
 
+    // ===== 点击复制功能 =====
+    // 点击象限标题复制统计信息
+    const handleGraphicClick = (params: any) => {
+      if (params.componentType === 'graphic' && params.info && params.info.key) {
+        const { key } = params.info as QuadrantLabelInfo
+        const { xVals, yVals } = getThresholdValues()
+        const stats = calculateRegionStats(
+          data,
+          key,
+          xVals,
+          yVals,
+          xAxisType,
+          yAxisType
+        )
+
+        // 获取区域名称
+        const regionConfig = config.regions?.[key]
+        const regionName = regionConfig?.name || t('legend.empty')
+
+        // 构建复制文本
+        let copyText = `${regionName}\n${t('quadrant.count', '数量')}: ${stats.count}`
+        if (sizeFieldName && stats.avg !== undefined) {
+          const formatValue = (v: number) => sizeIsPercentage
+            ? parseFloat((v * 100).toFixed(2)) + '%'
+            : parseFloat(v.toFixed(2))
+          copyText += `\n${t('quadrant.avg', '平均值')}: ${formatValue(stats.avg)}`
+          copyText += `\n${t('quadrant.median', '中位数')}: ${formatValue(stats.median ?? 0)}`
+          copyText += `\n${t('quadrant.max', '最大值')}: ${formatValue(stats.max ?? 0)}`
+          copyText += `\n${t('quadrant.min', '最小值')}: ${formatValue(stats.min ?? 0)}`
+        }
+
+        copyToClipboard(copyText).then(() => {
+          Toast.success({ content: t('toast.copySuccess', '复制成功'), theme: 'light', showClose: false })
+        }).catch(() => {
+          Toast.error({ content: t('toast.copyFailed', '复制失败'), theme: 'light', showClose: false })
+        })
+      }
+    }
+
+    // 点击气泡复制详情信息
+    const handleBubbleClick = (params: any) => {
+      if (params.componentType === 'series' && params.seriesType === 'scatter') {
+        const data = params.data
+        if (!data) return
+
+        // 获取显示值
+        let xDisplay = data.data ? data.data[0] : data.value[0]
+        let yDisplay = data.data ? data.data[1] : data.value[1]
+        let sizeDisplay: number | string = data.data ? data.data[2] : data.value[2]
+
+        // 格式化百分比显示
+        if (xIsPercentage && typeof xDisplay === 'number') {
+          xDisplay = parseFloat((xDisplay * 100).toFixed(2)) + '%'
+        }
+        if (yIsPercentage && typeof yDisplay === 'number') {
+          yDisplay = parseFloat((yDisplay * 100).toFixed(2)) + '%'
+        }
+        if (sizeIsPercentage && typeof sizeDisplay === 'number') {
+          sizeDisplay = parseFloat((sizeDisplay * 100).toFixed(2)) + '%'
+        }
+
+        // 构建复制文本
+        let copyText = ''
+        if (data.name) {
+          copyText += `${data.name}\n`
+        }
+        copyText += `${xFieldName || 'X'}: ${xDisplay}`
+        copyText += `\n${yFieldName || 'Y'}: ${yDisplay}`
+        if (sizeFieldName) {
+          copyText += `\n${sizeFieldName}: ${sizeDisplay}`
+        }
+
+        copyToClipboard(copyText).then(() => {
+          Toast.success({ content: t('toast.copySuccess', '复制成功'), theme: 'light', showClose: false })
+        }).catch(() => {
+          Toast.error({ content: t('toast.copyFailed', '复制失败'), theme: 'light', showClose: false })
+        })
+      }
+    }
+
     // 绑定事件
     chart.on('mouseover', handleGraphicMouseOver)
     chart.on('mouseout', handleGraphicMouseOut)
+    chart.on('click', handleGraphicClick)
+    chart.on('click', handleBubbleClick)
 
     return () => {
       chart.off('mouseover', handleGraphicMouseOver)
       chart.off('mouseout', handleGraphicMouseOut)
+      chart.off('click', handleGraphicClick)
+      chart.off('click', handleBubbleClick)
     }
   }, [data, getThresholdValues, xAxisType, yAxisType, xAxisData, yAxisData, sizeFieldName]) // Deps need to be correct
 
