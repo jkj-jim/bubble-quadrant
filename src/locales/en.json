@@ -10,8 +10,10 @@
         "multiColor": "Multi-color",
         "showLabel": "Show Labels",
         "xAxisSplit": "X Split",
+        "xAxisSplit2": "X Split 2",
         "yAxisSplit": "Y Split",
-        "quadrantName": "Quadrant Name",
+        "yAxisSplit2": "Y Split 2",
+        "quadrantName": "Region Name",
         "backgroundColor": "Background Color",
         "colorGroup": "Color Group"
     },
@@ -31,7 +33,22 @@
         "quadrantBL": "Bottom-Left Name",
         "quadrantBottom": "Bottom Name",
         "quadrantBR": "Bottom-Right Name",
-        "selectColorGroup": "Select Grouping"
+        "selectColorGroup": "Select Grouping",
+        "regionLeft": "Left Region",
+        "regionMiddleH": "Middle Region",
+        "regionRight": "Right Region",
+        "regionTop": "Top Region",
+        "regionMiddleV": "Middle Region",
+        "regionBottom": "Bottom Region",
+        "regionTopLeft": "Top-Left Region",
+        "regionTopMiddle": "Top-Middle Region",
+        "regionTopRight": "Top-Right Region",
+        "regionMiddleLeft": "Middle-Left Region",
+        "regionCenter": "Center Region",
+        "regionMiddleRight": "Middle-Right Region",
+        "regionBottomLeft": "Bottom-Left Region",
+        "regionBottomMiddle": "Bottom-Middle Region",
+        "regionBottomRight": "Bottom-Right Region"
     },
     "tooltip": {
         "bubbleName": "If empty, all data is shown; if set, only data with this field non-empty is shown"
@@ -42,7 +59,8 @@
         "average": "Average",
         "fillMedian": "Fill Median",
         "fillPrefix": "Fill",
-        "selectMiddle": "Select Middle"
+        "selectMiddle": "Select Middle",
+        "addSplitLine": "Add Split"
     },
     "chart": {
         "loading": "Loading...",

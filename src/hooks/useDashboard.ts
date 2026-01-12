@@ -39,7 +39,7 @@ export type DashboardState = 'create' | 'config' | 'view' | 'fullscreen'
  * 支持数值轴和类目轴两种模式
  */
 export interface BubbleChartConfig {
-  [key: string]: string | string[] | boolean | undefined;
+  [key: string]: string | string[] | boolean | Record<string, any> | undefined;
   dataSource?: string      // 数据源表ID
   nameField?: string       // 气泡名称字段ID
   xField?: string          // 横轴字段ID
@@ -53,22 +53,41 @@ export interface BubbleChartConfig {
   enableMultiColor?: boolean // 是否开启多彩模式
   showLabel?: boolean        // 是否常显名称标签
 
-  // 象限配置
+  // ===== 新版分割线配置（支持每轴最多2条分割线）=====
+  xThresholds?: string[]     // X轴分割线值数组（0-2条）
+  yThresholds?: string[]     // Y轴分割线值数组（0-2条）
+
+  // 区域配置（动态，key 格式为 "row_col"，如 "0_0", "1_2"）
+  // row: 0=底部, 1=中间, 2=顶部; col: 0=左侧, 1=中间, 2=右侧
+  regions?: Record<string, { name?: string; color?: string }>
+
+  // ===== 旧版象限配置（@deprecated，保留用于向后兼容）=====
+  /** @deprecated 请使用 xThresholds */
   xThreshold?: string        // X轴分割线值
+  /** @deprecated 请使用 yThresholds */
   yThreshold?: string        // Y轴分割线值
+  /** @deprecated 请使用 regions */
   quadrantTLName?: string    // 左上象限名称
+  /** @deprecated 请使用 regions */
   quadrantTLColor?: string   // 左上象限背景色
+  /** @deprecated 请使用 regions */
   quadrantTRName?: string    // 右上象限名称
+  /** @deprecated 请使用 regions */
   quadrantTRColor?: string   // 右上象限背景色
+  /** @deprecated 请使用 regions */
   quadrantBLName?: string    // 左下象限名称
+  /** @deprecated 请使用 regions */
   quadrantBLColor?: string   // 左下象限背景色
+  /** @deprecated 请使用 regions */
   quadrantBRName?: string    // 右下象限名称
+  /** @deprecated 请使用 regions */
   quadrantBRColor?: string   // 右下象限背景色
 
   // 高级配置 - 颜色分组
   colorGroupType?: 'quadrant' | 'field'  // 分组类型：按象限或按字段
   colorGroupField?: string                // 分组字段ID（当 colorGroupType 为 'field' 时）
 }
+
 
 /**
  * TableInfo - 工作表信息

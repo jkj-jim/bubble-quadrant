@@ -183,29 +183,29 @@ const getQuadrantForBubble = (
   return null
 }
 
+
 /**
- * 计算指定象限内气泡的统计数据
+ * 计算指定区域内气泡的统计数据（支持多分割线）
  * @param data 所有气泡数据
- * @param quadrantKey 目标象限标识
- * @param xThreshold x 轴分割线位置
- * @param yThreshold y 轴分割线位置
+ * @param regionKey 区域标识符，格式为 "row_col"
+ * @param xThresholds x 轴分割线位置数组（已排序）
+ * @param yThresholds y 轴分割线位置数组（已排序）
  * @param xAxisType x 轴类型
  * @param yAxisType y 轴类型
- * @param xAxisData x 轴类目数据（用于类目轴）
- * @param yAxisData y 轴类目数据（用于类目轴）
  */
-const calculateQuadrantStats = (
+const calculateRegionStats = (
   data: DataItem[],
-  quadrantKey: QuadrantKey,
-  xThreshold: number | null,
-  yThreshold: number | null,
+  regionKey: string,
+  xThresholds: number[],
+  yThresholds: number[],
   xAxisType: 'value' | 'category',
-  yAxisType: 'value' | 'category',
-  _xAxisData?: string[],  // 保留供将来使用
-  _yAxisData?: string[]   // 保留供将来使用
+  yAxisType: 'value' | 'category'
 ) => {
-  // 筛选属于该象限的气泡
-  const bubblesInQuadrant = data.filter(item => {
+  // 解析区域 key
+  const [targetRow, targetCol] = regionKey.split('_').map(Number)
+
+  // 筛选属于该区域的气泡
+  const bubblesInRegion = data.filter(item => {
     // 获取 x 值（数值轴直接用值，类目轴用索引）
     const xVal = xAxisType === 'category' && item.xCategoryIndex !== undefined
       ? item.xCategoryIndex
@@ -216,11 +216,25 @@ const calculateQuadrantStats = (
       ? item.yCategoryIndex
       : item.y as number
 
-    return getQuadrantForBubble(xVal, yVal, xThreshold, yThreshold) === quadrantKey
+    // 计算列位置
+    let col = 0
+    for (const threshold of xThresholds) {
+      if (xVal >= threshold) col++
+      else break
+    }
+
+    // 计算行位置
+    let row = 0
+    for (const threshold of yThresholds) {
+      if (yVal >= threshold) row++
+      else break
+    }
+
+    return row === targetRow && col === targetCol
   })
 
-  const count = bubblesInQuadrant.length
-  const sizes = bubblesInQuadrant.map(b => b.size).filter(s => typeof s === 'number' && !isNaN(s))
+  const count = bubblesInRegion.length
+  const sizes = bubblesInRegion.map(b => b.size).filter(s => typeof s === 'number' && !isNaN(s))
 
   if (sizes.length === 0) {
     return { count, avg: undefined, median: undefined, max: undefined, min: undefined }
@@ -335,22 +349,41 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
    * 计算分割线在坐标轴上的数值位置
    * 用于判断气泡所属象限和计算 label 位置
    * 类目轴使用 mapper.getThresholdPosition() 精确定位到类目之间
+   * 
+   * 返回 xVal/yVal 为第一条分割线（向后兼容）
+   * 返回 xVals/yVals 为所有分割线数组（新功能）
    */
   const getThresholdValues = useCallback(() => {
-    const xVal = config.xThreshold ? (
-      xAxisType === 'category'
-        ? xAxisMapper.getThresholdPosition(config.xThreshold as string)  // 使用 mapper 精确定位
-        : parseFloat(config.xThreshold as string)
-    ) : null
+    // 获取有效的分割线数组（优先使用新格式）
+    const xThresholdsList = config.xThresholds || (config.xThreshold ? [config.xThreshold] : [])
+    const yThresholdsList = config.yThresholds || (config.yThreshold ? [config.yThreshold] : [])
 
-    const yVal = config.yThreshold ? (
-      yAxisType === 'category'
-        ? yAxisMapper.getThresholdPosition(config.yThreshold as string)  // 使用 mapper 精确定位
-        : parseFloat(config.yThreshold as string)
-    ) : null
+    // 转换为数值数组
+    const xVals = xThresholdsList
+      .filter(Boolean)
+      .map(t => xAxisType === 'category'
+        ? xAxisMapper.getThresholdPosition(t as string)
+        : parseFloat(t as string)
+      )
+      .filter(v => v !== null && !isNaN(v))
+      .sort((a, b) => a - b) as number[]
 
-    return { xVal, yVal }
-  }, [config.xThreshold, config.yThreshold, xAxisType, yAxisType, xAxisMapper, yAxisMapper])
+    const yVals = yThresholdsList
+      .filter(Boolean)
+      .map(t => yAxisType === 'category'
+        ? yAxisMapper.getThresholdPosition(t as string)
+        : parseFloat(t as string)
+      )
+      .filter(v => v !== null && !isNaN(v))
+      .sort((a, b) => a - b) as number[]
+
+    // 向后兼容：xVal/yVal 为第一条分割线
+    const xVal = xVals.length > 0 ? xVals[0] : null
+    const yVal = yVals.length > 0 ? yVals[0] : null
+
+    return { xVal, yVal, xVals, yVals }
+  }, [config.xThreshold, config.yThreshold, config.xThresholds, config.yThresholds, xAxisType, yAxisType, xAxisMapper, yAxisMapper])
+
 
 
 
@@ -557,29 +590,39 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       let colorGroupKey = ''
 
       if (config.colorGroupType === 'quadrant') {
-        // 按象限分组：根据数据点所在象限决定颜色分组
-        // 使用 getThresholdValues 获取分割线位置，然后用 getQuadrantForBubble 判断象限
-        const { xVal, yVal } = getThresholdValues()
-        const xValNum = xAxisType === 'category' && item.xCategoryIndex !== undefined
-          ? item.xCategoryIndex
-          : xValue as number
-        const yValNum = yAxisType === 'category' && item.yCategoryIndex !== undefined
-          ? item.yCategoryIndex
-          : yValue as number
-        const quadrant = getQuadrantForBubble(xValNum, yValNum, xVal, yVal)
-        if (quadrant) {
-          // 根据象限获取象限名称作为分组 key
-          // 如果象限名称未配置（为空），则使用 emptyLabel（"空"）
-          switch (quadrant) {
-            case 'TL': colorGroupKey = config.quadrantTLName || emptyLabel; break
-            case 'TR': colorGroupKey = config.quadrantTRName || emptyLabel; break
-            case 'BL': colorGroupKey = config.quadrantBLName || emptyLabel; break
-            case 'BR': colorGroupKey = config.quadrantBRName || emptyLabel; break
-            case 'LEFT': colorGroupKey = config.quadrantTLName || emptyLabel; break
-            case 'RIGHT': colorGroupKey = config.quadrantTRName || emptyLabel; break
-            case 'TOP': colorGroupKey = config.quadrantTLName || emptyLabel; break
-            case 'BOTTOM': colorGroupKey = config.quadrantBLName || emptyLabel; break
+        // 按象限/区域分组：根据数据点所在区域决定颜色分组
+        const { xVals, yVals } = getThresholdValues()
+
+        // 如果没有配置分割线，无法进行象限分组
+        if (xVals.length === 0 && yVals.length === 0) {
+          colorGroupKey = emptyLabel
+        } else {
+          // 获取数据点坐标
+          const xValNum = xAxisType === 'category' && item.xCategoryIndex !== undefined
+            ? item.xCategoryIndex
+            : xValue as number
+          const yValNum = yAxisType === 'category' && item.yCategoryIndex !== undefined
+            ? item.yCategoryIndex
+            : yValue as number
+
+          // 计算列位置（基于 xVals 分割线）
+          let col = 0
+          for (const threshold of xVals) {
+            if (xValNum >= threshold) col++
+            else break
           }
+
+          // 计算行位置（基于 yVals 分割线）
+          let row = 0
+          for (const threshold of yVals) {
+            if (yValNum >= threshold) row++
+            else break
+          }
+
+          // 构建 region key 并获取区域名称
+          const regionKey = `${row}_${col}`
+          const regionConfig = config.regions?.[regionKey]
+          colorGroupKey = regionConfig?.name || emptyLabel
         }
       } else if (config.colorGroupType === 'field' && item.colorGroupValue !== undefined) {
         // 按字段分组
@@ -729,7 +772,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           }
         }
 
-        // markLine 配置
+        // markLine 配置 - 支持多条分割线
+        const { xVals, yVals } = getThresholdValues()
         const markLineConfig = {
           z: 1,
           silent: true,
@@ -741,73 +785,68 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           },
           label: { show: false },
           data: [
-            config.xThreshold ? {
-              xAxis: xAxisType === 'category'
-                ? xAxisMapper.getThresholdPosition(config.xThreshold as string)
-                : parseFloat(config.xThreshold as string)
-            } : null,
-            config.yThreshold ? {
-              yAxis: yAxisType === 'category'
-                ? yAxisMapper.getThresholdPosition(config.yThreshold as string)
-                : parseFloat(config.yThreshold as string)
-            } : null
-          ].filter(Boolean) as any[]
+            // 所有 X 轴分割线
+            ...xVals.map(xVal => ({ xAxis: xVal })),
+            // 所有 Y 轴分割线
+            ...yVals.map(yVal => ({ yAxis: yVal }))
+          ]
         }
 
-        // markArea 配置
+        // markArea 配置 - 支持多分割线（最多9个区域）
         const markAreaConfig = {
           z: 0,
           silent: true,
           emphasis: { disabled: true },
           data: (() => {
-            if (!config.xThreshold && !config.yThreshold) return []
-
-            const xVal = config.xThreshold ? (
-              xAxisType === 'category'
-                ? xAxisMapper.getThresholdPosition(config.xThreshold as string)
-                : parseFloat(config.xThreshold as string)
-            ) : null
-
-            const yVal = config.yThreshold ? (
-              yAxisType === 'category'
-                ? yAxisMapper.getThresholdPosition(config.yThreshold as string)
-                : parseFloat(config.yThreshold as string)
-            ) : null
+            if (xVals.length === 0 && yVals.length === 0) return []
 
             const xMin = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().min : -1e10
             const xMax = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().max : 1e10
             const yMin = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().min : -1e10
             const yMax = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().max : 1e10
 
-            // 仅 X 轴分割
-            if (xVal !== null && yVal === null) {
-              return [
-                [{ name: config.quadrantTLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'LEFT' ? 'transparent' : (config.quadrantTLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yMin }, { xAxis: xVal, yAxis: yMax }],
-                [{ name: config.quadrantTRName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'RIGHT' ? 'transparent' : (config.quadrantTRColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xVal, yAxis: yMin }, { xAxis: xMax, yAxis: yMax }]
-              ]
+            // 构建边界数组
+            const xBounds = [xMin, ...xVals, xMax]
+            const yBounds = [yMin, ...yVals, yMax]
+
+            const areas: any[] = []
+            const cols = xBounds.length - 1
+            const rows = yBounds.length - 1
+
+            // 遍历所有区域（从下到上，从左到右）
+            for (let row = 0; row < rows; row++) {
+              for (let col = 0; col < cols; col++) {
+                const regionKey = `${row}_${col}`
+                const regionConfig = config.regions?.[regionKey]
+
+                // 获取区域颜色，如果未配置则使用透明
+                const baseColor = regionConfig?.color || 'transparent'
+
+                // Hover 效果：如果有 hoveredQuadrant 且不是当前区域，则透明
+                const color = hoveredQuadrant && hoveredQuadrant !== regionKey
+                  ? 'transparent'
+                  : baseColor
+
+                areas.push([
+                  {
+                    name: regionConfig?.name || '',
+                    itemStyle: { color, opacity: 0.1 },
+                    label: { show: false },
+                    xAxis: xBounds[col],
+                    yAxis: yBounds[row]
+                  },
+                  {
+                    xAxis: xBounds[col + 1],
+                    yAxis: yBounds[row + 1]
+                  }
+                ])
+              }
             }
 
-            // 仅 Y 轴分割
-            if (xVal === null && yVal !== null) {
-              return [
-                [{ name: config.quadrantTLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'TOP' ? 'transparent' : (config.quadrantTLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yVal }, { xAxis: xMax, yAxis: yMax }],
-                [{ name: config.quadrantBLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'BOTTOM' ? 'transparent' : (config.quadrantBLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yMin }, { xAxis: xMax, yAxis: yVal }]
-              ]
-            }
-
-            // 双轴分割（4 象限）
-            if (xVal !== null && yVal !== null) {
-              return [
-                [{ name: config.quadrantTLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'TL' ? 'transparent' : (config.quadrantTLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yVal }, { xAxis: xVal, yAxis: yMax }],
-                [{ name: config.quadrantTRName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'TR' ? 'transparent' : (config.quadrantTRColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xVal, yAxis: yVal }, { xAxis: xMax, yAxis: yMax }],
-                [{ name: config.quadrantBLName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'BL' ? 'transparent' : (config.quadrantBLColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xMin, yAxis: yMin }, { xAxis: xVal, yAxis: yVal }],
-                [{ name: config.quadrantBRName || '', itemStyle: { color: hoveredQuadrant && hoveredQuadrant !== 'BR' ? 'transparent' : (config.quadrantBRColor || 'transparent'), opacity: 0.1 }, label: { show: false }, xAxis: xVal, yAxis: yMin }, { xAxis: xMax, yAxis: yVal }]
-              ]
-            }
-
-            return []
+            return areas
           })()
         }
+
 
         // 如果开启了颜色分组，按分组拆分为多个 series
         if (config.colorGroupType && colorGroupMap.size > 0) {
@@ -877,7 +916,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     // 计算并设置 Graphic 元素 (象限 Label)
     const graphicElements: any[] = []
 
-    const createLabelGraphic = (key: QuadrantKey, name: string, x: number, y: number, position: 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right') => {
+    const createLabelGraphic = (key: QuadrantKey, name: string, x: number, y: number, position: 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center') => {
       // ECharts Text Graphic Style configuration
       // align: 'center' | 'left' | 'right'
       // verticalAlign: 'middle' | 'top' | 'bottom'
@@ -925,6 +964,10 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           finalX = x - offset
           finalY = y - offset
           break
+        case 'center':
+          // 正中心：居中对齐，不加偏移
+          align = 'center'; verticalAlign = 'middle';
+          break
       }
 
       // === 象限名称样式配置 ===
@@ -966,18 +1009,15 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       }
     }
 
-    const { xVal, yVal } = getThresholdValues()
+    const { xVals, yVals } = getThresholdValues()
 
-    if (!config.xThreshold && !config.yThreshold) {
-      // setQuadrantLabels([]) // Removed
+    if (xVals.length === 0 && yVals.length === 0) {
       option.graphic = []
       chart.setOption(option, { replaceMerge: ['graphic'] })
       return
     }
 
     // 获取 grid 区域的像素边界
-    // 使用 grid.coordinateSystem.getRect() 获取真实绘图区域边界
-    // 这是 ECharts 内部用于 markArea 定位的同一方法，保证一致性
     const gridModel = (chart as any).getModel().getComponent('grid')
     const gridRect = gridModel?.coordinateSystem?.getRect()
 
@@ -994,36 +1034,113 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     const gridTop = gridRect.y
     const gridBottom = gridRect.y + gridRect.height
 
-    const gridCenterX = (gridLeft + gridRight) / 2
-    const gridCenterY = (gridTop + gridBottom) / 2
+    // 计算分割线在像素坐标中的位置
+    const convertToPixel = (chart as any).convertToPixel?.bind(chart as any)
 
-    // 1. 左右模式 (仅 X 轴分割)
-    if (xVal !== null && yVal === null) {
-      if (config.quadrantTLName) { // LEFT
-        graphicElements.push(createLabelGraphic('LEFT', config.quadrantTLName, gridLeft, gridCenterY, 'left'))
-      }
-      if (config.quadrantTRName) { // RIGHT
-        graphicElements.push(createLabelGraphic('RIGHT', config.quadrantTRName, gridRight, gridCenterY, 'right'))
+    // 构建 X 轴像素边界数组
+    const xPixelBounds = [gridLeft]
+    xVals.forEach(val => {
+      const pixel = convertToPixel('grid', [val, 0])
+      if (pixel) xPixelBounds.push(pixel[0])
+    })
+    xPixelBounds.push(gridRight)
+
+    // 构建 Y 轴像素边界数组
+    const yPixelBounds = [gridBottom]  // Y 轴像素从下到上
+    yVals.forEach(val => {
+      const pixel = convertToPixel('grid', [0, val])
+      if (pixel) yPixelBounds.push(pixel[1])
+    })
+    yPixelBounds.push(gridTop)
+    // Y 轴需要反转（像素坐标 Y 轴从上到下，数据坐标从下到上）
+    yPixelBounds.sort((a, b) => b - a)
+
+    // 计算网格尺寸
+    const cols = xPixelBounds.length - 1
+    const rows = yPixelBounds.length - 1
+
+    // 遍历所有区域，生成标签
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const regionKey = `${row}_${col}`
+        const regionConfig = config.regions?.[regionKey]
+        const name = regionConfig?.name
+
+        if (!name) continue  // 没有名称则不显示标签
+
+        // 计算区域边界
+        const left = xPixelBounds[col]
+        const right = xPixelBounds[col + 1]
+        const bottom = yPixelBounds[row]
+        const top = yPixelBounds[row + 1]
+
+        // 判断标签位置
+        const isTop = row === rows - 1
+        const isBottom = row === 0
+        const isLeft = col === 0
+        const isRight = col === cols - 1
+        const isMiddleRow = !isTop && !isBottom
+        const isMiddleCol = !isLeft && !isRight
+
+        // 确定显示位置
+        let position: 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center'
+        let x: number
+        let y: number
+
+        // 四角位置
+        if (isTop && isLeft) {
+          position = 'top-left'
+          x = left
+          y = top
+        } else if (isTop && isRight) {
+          position = 'top-right'
+          x = right
+          y = top
+        } else if (isBottom && isLeft) {
+          position = 'bottom-left'
+          x = left
+          y = bottom
+        } else if (isBottom && isRight) {
+          position = 'bottom-right'
+          x = right
+          y = bottom
+        } else if (isTop && isMiddleCol) {
+          // 顶部中间
+          position = 'top'
+          x = (left + right) / 2
+          y = top
+        } else if (isBottom && isMiddleCol) {
+          // 底部中间
+          position = 'bottom'
+          x = (left + right) / 2
+          y = bottom
+        } else if (isMiddleRow && isLeft) {
+          // 左侧中间
+          position = 'left'
+          x = left
+          y = (top + bottom) / 2
+        } else if (isMiddleRow && isRight) {
+          // 右侧中间
+          position = 'right'
+          x = right
+          y = (top + bottom) / 2
+        } else {
+          // 正中心（9宫格的中心）- 标签显示在区域正中间
+          position = 'center'  // 使用 center 定位，完全居中
+          x = (left + right) / 2
+          y = (top + bottom) / 2
+        }
+
+        graphicElements.push(createLabelGraphic(
+          regionKey as QuadrantKey,
+          name,
+          x,
+          y,
+          position
+        ))
       }
     }
 
-    // 2. 上下模式 (仅 Y 轴分割)
-    if (xVal === null && yVal !== null) {
-      if (config.quadrantTLName) { // TOP
-        graphicElements.push(createLabelGraphic('TOP', config.quadrantTLName, gridCenterX, gridTop, 'top'))
-      }
-      if (config.quadrantBLName) { // BOTTOM
-        graphicElements.push(createLabelGraphic('BOTTOM', config.quadrantBLName, gridCenterX, gridBottom, 'bottom'))
-      }
-    }
-
-    // 3. 双轴分割 (4象限模式)
-    if (xVal !== null && yVal !== null) {
-      if (config.quadrantTLName) graphicElements.push(createLabelGraphic('TL', config.quadrantTLName, gridLeft, gridTop, 'top-left'))
-      if (config.quadrantTRName) graphicElements.push(createLabelGraphic('TR', config.quadrantTRName, gridRight, gridTop, 'top-right'))
-      if (config.quadrantBLName) graphicElements.push(createLabelGraphic('BL', config.quadrantBLName, gridLeft, gridBottom, 'bottom-left'))
-      if (config.quadrantBRName) graphicElements.push(createLabelGraphic('BR', config.quadrantBRName, gridRight, gridBottom, 'bottom-right'))
-    }
 
     // Apply Graphic
     option.graphic = graphicElements
@@ -1052,17 +1169,15 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       if (params.componentType === 'graphic' && params.info && params.info.key) {
         const { key, name, x, y, position } = params.info as QuadrantLabelInfo
 
-        // 计算统计信息
-        const { xVal, yVal } = getThresholdValues()
-        const stats = calculateQuadrantStats(
+        // 计算统计信息（使用新的多分割线统计函数）
+        const { xVals, yVals } = getThresholdValues()
+        const stats = calculateRegionStats(
           data,
           key,
-          xVal,
-          yVal,
+          xVals,
+          yVals,
           xAxisType,
-          yAxisType,
-          xAxisData,
-          yAxisData
+          yAxisType
         )
 
         // 显示 Tooltip
@@ -1161,49 +1276,135 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
 
         setHoveredQuadrant(key)
 
-        // Highlight - 针对每个 series 分别计算该象限内的数据点索引
+        // ===== 气泡高亮逻辑 =====
+        // 当开启任何分组模式（象限分组/字段分组）时，图例的高亮行为与象限高亮存在冲突，
+        // 因此在分组模式下禁用象限标题的气泡高亮，只保留 tooltip 统计
+        // 只有无分组模式下才执行高亮
+        const isGroupingEnabled = !!config.colorGroupType
+
+        if (isGroupingEnabled) {
+          // 分组模式：不执行高亮，避免与图例高亮冲突
+          return
+        }
+
+        // ===== 以下是非字段分组模式的高亮逻辑 =====
+        // 使用原始 data 数组计算区域归属
+        const [targetRow, targetCol] = key.split('_').map(Number)
+
+        // 获取所有 series 的名称列表（用于匹配 colorGroupKey）
         const seriesArr = chart.getOption().series as any[]
-        const seriesCount = seriesArr?.length || 1
+        const emptyLabel = t('legend.empty')
 
-        let hasHighlight = false
-        for (let si = 0; si < seriesCount; si++) {
-          const seriesData = seriesArr[si]?.data || []
-          const indicesInQuadrant: number[] = []
+        // 构建 seriesName -> seriesIndex 的映射
+        const seriesNameToIndex = new Map<string, number>()
+        seriesArr.forEach((s, idx) => {
+          if (s.name && s.name !== '__quadrant_bg__') {
+            seriesNameToIndex.set(s.name, idx)
+          }
+        })
 
-          seriesData.forEach((item: any, index: number) => {
-            // 从 value 中读取坐标值 [x, y, size]
-            const xValue = item.value?.[0] ?? 0
-            const yValue = item.value?.[1] ?? 0
+        // 构建 seriesIndex -> 该 series 内的数据点索引列表
+        const highlightMap = new Map<number, number[]>()
 
-            if (getQuadrantForBubble(xValue, yValue, xVal, yVal) === key) {
-              indicesInQuadrant.push(index)
+        // 追踪每个 series 的当前计数器（用于确定数据点在 series 内的索引）
+        const seriesDataCounter = new Map<number, number>()
+
+        // 遍历原始 data，计算每个点的区域
+        data.forEach((item) => {
+          // 获取坐标值
+          const xVal = xAxisType === 'category' && item.xCategoryIndex !== undefined
+            ? item.xCategoryIndex
+            : (typeof item.x === 'number' ? item.x : parseFloat(String(item.x)) || 0)
+
+          const yVal = yAxisType === 'category' && item.yCategoryIndex !== undefined
+            ? item.yCategoryIndex
+            : (typeof item.y === 'number' ? item.y : parseFloat(String(item.y)) || 0)
+
+          // 计算列位置
+          let col = 0
+          for (const threshold of xVals) {
+            if (xVal >= threshold) col++
+            else break
+          }
+
+          // 计算行位置
+          let row = 0
+          for (const threshold of yVals) {
+            if (yVal >= threshold) row++
+            else break
+          }
+
+          // 确定此数据点属于哪个 series
+          let seriesIndex = 0
+          if (config.colorGroupType && seriesNameToIndex.size > 0) {
+            // 开启了颜色分组
+            let colorGroupKey = ''
+            if (config.colorGroupType === 'quadrant') {
+              // 按象限分组 - 使用旧的象限 key 逻辑
+              const { xVal: thresholdX, yVal: thresholdY } = getThresholdValues()
+              const quadrant = getQuadrantForBubble(xVal, yVal, thresholdX, thresholdY)
+              if (quadrant) {
+                switch (quadrant) {
+                  case 'TL': colorGroupKey = config.quadrantTLName || emptyLabel; break
+                  case 'TR': colorGroupKey = config.quadrantTRName || emptyLabel; break
+                  case 'BL': colorGroupKey = config.quadrantBLName || emptyLabel; break
+                  case 'BR': colorGroupKey = config.quadrantBRName || emptyLabel; break
+                  case 'LEFT': colorGroupKey = config.quadrantTLName || emptyLabel; break
+                  case 'RIGHT': colorGroupKey = config.quadrantTRName || emptyLabel; break
+                  case 'TOP': colorGroupKey = config.quadrantTLName || emptyLabel; break
+                  case 'BOTTOM': colorGroupKey = config.quadrantBLName || emptyLabel; break
+                }
+              }
+            } else if (config.colorGroupType === 'field') {
+              // 按字段分组
+              colorGroupKey = item.colorGroupValue || ''
             }
-          })
+            const displayKey = colorGroupKey || emptyLabel
+            seriesIndex = seriesNameToIndex.get(displayKey) ?? 0
+          }
 
-          if (indicesInQuadrant.length > 0) {
+          // 获取或初始化此 series 的计数器
+          const currentIndex = seriesDataCounter.get(seriesIndex) || 0
+          seriesDataCounter.set(seriesIndex, currentIndex + 1)
+
+          // 如果在目标区域内，记录高亮索引
+          if (row === targetRow && col === targetCol) {
+            if (!highlightMap.has(seriesIndex)) {
+              highlightMap.set(seriesIndex, [])
+            }
+            highlightMap.get(seriesIndex)!.push(currentIndex)
+          }
+        })
+
+        // 先 downplay 所有 series 重置状态，解决 focus: 'self' 导致的冲突
+        for (let si = 0; si < seriesArr.length; si++) {
+          chart.dispatchAction({
+            type: 'downplay',
+            seriesIndex: si
+          })
+        }
+
+        // 执行高亮
+        let hasHighlight = false
+        highlightMap.forEach((indices, seriesIndex) => {
+          if (indices.length > 0) {
             hasHighlight = true
             chart.dispatchAction({
               type: 'highlight',
-              seriesIndex: si,
-              dataIndex: indicesInQuadrant
+              seriesIndex: seriesIndex,
+              dataIndex: indices
             })
           }
-        }
+        })
 
         if (!hasHighlight) {
-          // Empty quadrant, downplay all
-          // chart.dispatchAction({ type: 'downplay', seriesIndex: 0 }) 
-          // 用户反馈“hover 象限标题的时候，当前象限的背景色还是要展示的”
-          // Downplay 会导致整个 series 变淡，但 markArea 即使在 downplay 下也应该受 opacity 控制
-          // 保持 downplay 逻辑，确保未选中气泡变淡
-          // 空象限：hover 时也要弱化所有气泡
-          // 使用 highlight 空数组来触发所有气泡进入 blur 状态
-          const seriesCount = (chart.getOption().series as any[])?.length || 1
+          // 空象限：所有气泡进入 blur 状态
+          const seriesCount = seriesArr.length
           for (let si = 0; si < seriesCount; si++) {
             chart.dispatchAction({
               type: 'highlight',
               seriesIndex: si,
-              dataIndex: []  // 空数组：不高亮任何数据点，所有数据进入 blur 状态
+              dataIndex: []
             })
           }
         }

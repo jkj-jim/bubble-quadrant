@@ -35,8 +35,11 @@ import { useFieldOptions } from './hooks/useFieldOptions'
 import { useViews } from './hooks/useViews'
 import { useData3 as useData } from './hooks/useData3'
 import { BubbleChart } from './components/BubbleChart'
+import { useGridRegions } from './hooks/useGridRegions'
+
 
 const { Text } = Typography
+
 
 /**
  * FieldSelect - 字段选择器组件
@@ -174,6 +177,271 @@ const ColorPicker = ({
           padding: 0, margin: 0, border: 'none', cursor: 'pointer'
         }}
       />
+    </div>
+  )
+}
+
+/**
+ * QuadrantConfigPanel - 象限配置面板组件
+ * 
+ * 功能：
+ * 1. 支持每个轴最多2条分割线（渐进式添加）
+ * 2. 动态计算区域数量（最多9个）
+ * 3. 使用 useGridRegions hook 计算区域 placeholder 和标题位置
+ */
+interface QuadrantConfigPanelProps {
+  config: BubbleChartConfig
+  resolvedXType: 'number' | 'category'
+  resolvedYType: 'number' | 'category'
+  finalXOptions: string[] | undefined
+  finalYOptions: string[] | undefined
+  data: any[]
+  handleConfigChange: (key: keyof BubbleChartConfig, value: any) => void
+  t: (key: string) => string
+}
+
+const QuadrantConfigPanel: React.FC<QuadrantConfigPanelProps> = ({
+  config,
+  resolvedXType,
+  resolvedYType,
+  finalXOptions,
+  finalYOptions,
+  data,
+  handleConfigChange,
+  t
+}) => {
+  // 使用 useGridRegions 计算区域配置
+  const gridRegions = useGridRegions(config, t)
+
+  // 辅助函数：计算平均值
+  const calculateAverage = (values: number[]) => {
+    if (values.length === 0) return 0
+    return values.reduce((a, b) => a + b, 0) / values.length
+  }
+
+  // 辅助函数：计算中位数
+  const calculateMedian = (values: number[]) => {
+    if (values.length === 0) return 0
+    const sorted = [...values].sort((a, b) => a - b)
+    const mid = Math.floor(sorted.length / 2)
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+  }
+
+  // 获取当前有效的分割线数组（优先使用新格式，回退到旧格式）
+  const getEffectiveThresholds = (axis: 'x' | 'y'): string[] => {
+    if (axis === 'x') {
+      return config.xThresholds || (config.xThreshold ? [config.xThreshold] : [])
+    } else {
+      return config.yThresholds || (config.yThreshold ? [config.yThreshold] : [])
+    }
+  }
+
+  // 辅助函数：更新第 N 条分割线值
+  const updateThreshold = (axis: 'x' | 'y', index: number, value: string | undefined) => {
+    // 获取当前有效的分割线数组（兼容旧格式）
+    const currentThresholds = [...getEffectiveThresholds(axis)]
+
+    if (value === undefined) {
+      // 删除指定位置的分割线
+      currentThresholds.splice(index, 1)
+    } else {
+      // 更新或添加分割线
+      currentThresholds[index] = value
+    }
+
+    // 同时更新新旧格式
+    const key = axis === 'x' ? 'xThresholds' : 'yThresholds'
+    const oldKey = axis === 'x' ? 'xThreshold' : 'yThreshold'
+
+    handleConfigChange(key as keyof BubbleChartConfig, currentThresholds.length > 0 ? currentThresholds : undefined)
+    handleConfigChange(oldKey as keyof BubbleChartConfig, currentThresholds[0])
+  }
+
+  // 辅助函数：更新区域配置
+  const updateRegion = (regionKey: string, field: 'name' | 'color', value: string) => {
+    // 深拷贝现有的 regions 配置
+    const currentRegions: Record<string, { name?: string; color?: string }> = {}
+
+    if (config.regions) {
+      Object.keys(config.regions).forEach(key => {
+        currentRegions[key] = { ...config.regions![key] }
+      })
+    }
+
+    // 确保目标 key 存在
+    if (!currentRegions[regionKey]) {
+      currentRegions[regionKey] = {}
+    }
+
+    // 更新字段
+    currentRegions[regionKey][field] = value
+
+    // 更新配置
+    handleConfigChange('regions', currentRegions)
+  }
+
+  // 渲染单条分割线配置
+  const renderSplitLineConfig = (
+    axis: 'x' | 'y',
+    index: number,
+    label: string,
+    value: string | undefined,
+    axisType: 'number' | 'category',
+    options: string[] | undefined,
+    dataKey: 'x' | 'y'
+  ) => {
+    const thresholds = getEffectiveThresholds(axis)
+    const hasValue = !!value
+    const canAddSecond = index === 0 && hasValue && thresholds.length < 2
+    const isSecondLine = index === 1
+
+    return (
+      <div style={{ marginBottom: isSecondLine ? '24px' : '12px' }} key={`${axis}-${index}`}>
+        {/* 标题行 - 第二条分割线不显示标题文字 */}
+        <div style={{ display: 'flex', justifyContent: isSecondLine ? 'flex-end' : 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          {/* 第一条分割线显示标题，第二条不显示 */}
+          {!isSecondLine && <Text strong>{label}</Text>}
+          <div style={{ display: 'flex', gap: '8px', fontSize: '12px' }}>
+            {/* 已设置值时显示：添加分割线 | 清除 */}
+            {hasValue ? (
+              <>
+                {canAddSecond && (
+                  <>
+                    <span
+                      style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
+                      onClick={() => updateThreshold(axis, 1, '')}
+                      onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
+                    >
+                      {t('button.addSplitLine')}
+                    </span>
+                    <span style={{ color: 'var(--semi-color-text-2)' }}>|</span>
+                  </>
+                )}
+                <span
+                  style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
+                  onClick={() => updateThreshold(axis, index, undefined)}
+                  onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
+                >
+                  {t('label.clear')}
+                </span>
+              </>
+            ) : (
+              // 未设置值时显示快捷填充
+              axisType === 'category' && options && options.length > 0 ? (
+                <span
+                  style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
+                  onClick={() => {
+                    const middleIndex = Math.floor((options.length - 1) / 2)
+                    updateThreshold(axis, index, options[middleIndex])
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
+                >
+                  {t('button.selectMiddle')}
+                </span>
+              ) : (
+                <span style={{ userSelect: 'none', color: 'var(--semi-color-text-1)' }}>
+                  {t('button.fillPrefix')}{' '}
+                  <span
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      const values = data.map(d => Number(d[dataKey])).filter(n => !isNaN(n))
+                      if (values.length > 0) {
+                        updateThreshold(axis, index, calculateAverage(values).toFixed(2))
+                      }
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
+                  >
+                    {t('button.average')}
+                  </span>
+                  <span style={{ margin: '0 2px' }}>|</span>
+                  <span
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      const values = data.map(d => Number(d[dataKey])).filter(n => !isNaN(n))
+                      if (values.length > 0) {
+                        updateThreshold(axis, index, calculateMedian(values).toFixed(2))
+                      }
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
+                  >
+                    {t('button.median')}
+                  </span>
+                </span>
+              )
+            )}
+          </div>
+        </div>
+
+        {/* 输入控件 */}
+        {axisType === 'category' && options && options.length > 0 ? (
+          <Select
+            value={value}
+            onChange={(val) => updateThreshold(axis, index, val as string)}
+            placeholder={t('placeholder.splitAfterOption')}
+            style={{ width: '100%' }}
+          >
+            {options.map(opt => (
+              <Select.Option key={opt} value={opt}>{opt}</Select.Option>
+            ))}
+          </Select>
+        ) : (
+          <Input
+            value={value || ''}
+            onChange={(val) => updateThreshold(axis, index, val)}
+            placeholder={t('placeholder.splitAtValue')}
+            style={{ width: '100%' }}
+            type="number"
+          />
+        )}
+      </div>
+    )
+  }
+
+  const xThresholds = getEffectiveThresholds('x')
+  const yThresholds = getEffectiveThresholds('y')
+
+  return (
+    <div>
+      {/* ===== 横轴分割线配置 ===== */}
+      {renderSplitLineConfig('x', 0, t('label.xAxisSplit'), xThresholds[0], resolvedXType, finalXOptions, 'x')}
+      {xThresholds.length > 1 && renderSplitLineConfig('x', 1, t('label.xAxisSplit2'), xThresholds[1], resolvedXType, finalXOptions, 'x')}
+
+      {/* ===== 纵轴分割线配置 ===== */}
+      {renderSplitLineConfig('y', 0, t('label.yAxisSplit'), yThresholds[0], resolvedYType, finalYOptions, 'y')}
+      {yThresholds.length > 1 && renderSplitLineConfig('y', 1, t('label.yAxisSplit2'), yThresholds[1], resolvedYType, finalYOptions, 'y')}
+
+      {/* ===== 区域名称和颜色配置 ===== */}
+      {gridRegions.hasRegions && (
+        <div style={{ borderTop: '1px solid var(--semi-color-border)', paddingTop: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <Text strong>{t('label.quadrantName')}</Text>
+            <Text strong>{t('label.backgroundColor')}</Text>
+          </div>
+
+          {gridRegions.regionConfigs.map(regionConfig => (
+            <div
+              key={regionConfig.key}
+              style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'center' }}
+            >
+              <Input
+                value={config.regions?.[regionConfig.key]?.name || ''}
+                onChange={(value) => updateRegion(regionConfig.key, 'name', value)}
+                placeholder={regionConfig.placeholder}
+                style={{ flex: 1 }}
+              />
+              <ColorPicker
+                value={config.regions?.[regionConfig.key]?.color || '#FFFFFF'}
+                onChange={(color) => updateRegion(regionConfig.key, 'color', color)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -461,7 +729,11 @@ function App() {
         newConfig.nameField = undefined    // 清空气泡名称
         delete newConfig.xFieldType
         delete newConfig.yFieldType
-        // 清空象限配置
+        // 清空新格式象限配置
+        newConfig.xThresholds = undefined
+        newConfig.yThresholds = undefined
+        newConfig.regions = undefined
+        // 清空旧格式象限配置（向后兼容）
         newConfig.xThreshold = undefined
         newConfig.yThreshold = undefined
         newConfig.quadrantTLName = undefined
@@ -477,6 +749,7 @@ function App() {
         newConfig.colorGroupField = undefined
         return newConfig
       }
+
 
       // 当横轴字段变化时，检测字段类型
       if (key === 'xField' && typeof finalValue === 'string') {
@@ -823,311 +1096,19 @@ function App() {
                     {t('message.completeConfigFirst')}
                   </div>
                 ) : (
-                  <div>
-                    {/* ===== 横轴分割线配置 ===== */}
-                    <div style={{ marginBottom: '24px' }}>
-                      {/* 标题行：包含标签和辅助操作按钮 */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <Text strong>{t('label.xAxisSplit')}</Text>
-                        {/* 根据是否已设置分割线值，显示不同的辅助按钮 */}
-                        {config.xThreshold ? (
-                          // 已设置分割线时：显示"清除"按钮
-                          <span
-                            style={{ cursor: 'pointer', fontSize: '12px', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
-                            onClick={() => handleConfigChange('xThreshold', undefined)}
-                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
-                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
-                          >
-                            {t('label.clear')}
-                          </span>
-                        ) : (
-                          // 未设置分割线时：根据轴类型显示不同的快捷填充按钮
-                          resolvedXType === 'category' ? (
-                            // 类目轴：显示"选择中间项"按钮
-                            <span
-                              style={{ cursor: 'pointer', fontSize: '12px', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
-                              onClick={() => {
-                                // 计算类目列表的中间索引并选中
-                                if (finalXOptions && finalXOptions.length > 0) {
-                                  const middleIndex = Math.floor((finalXOptions.length - 1) / 2)
-                                  handleConfigChange('xThreshold', finalXOptions[middleIndex])
-                                }
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
-                              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
-                            >
-                              {t('button.selectMiddle')}
-                            </span>
-                          ) : (
-                            // 数值轴：显示"填入 平均值｜中位数"按钮
-                            <span key="x-fill-helper" style={{ fontSize: '12px', userSelect: 'none', color: 'var(--semi-color-text-1)' }}>
-                              {t('button.fillPrefix')}{' '}
-                              {/* 平均值按钮 */}
-                              <span
-                                style={{ cursor: 'pointer', color: 'var(--semi-color-text-1)' }}
-                                onClick={() => {
-                                  // 计算平均值：所有有效数值的算术平均
-                                  const values = data.map(d => Number(d.x)).filter(n => !isNaN(n)).sort((a, b) => a - b)
-                                  if (values.length > 0) {
-                                    const sum = values.reduce((a, b) => a + b, 0)
-                                    const avg = sum / values.length
-                                    handleConfigChange('xThreshold', avg.toFixed(2))
-                                  }
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
-                                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
-                              >
-                                {t('button.average')}
-                              </span>
-                              <span style={{ margin: '0 2px', color: 'var(--semi-color-text-1)' }}>|</span>
-                              {/* 中位数按钮 */}
-                              <span
-                                style={{ cursor: 'pointer', color: 'var(--semi-color-text-1)' }}
-                                onClick={() => {
-                                  // 计算中位数：
-                                  // 1. 将所有有效数值排序
-                                  // 2. 如果数据个数为奇数，取中间值
-                                  // 3. 如果数据个数为偶数，取中间两个值的平均
-                                  const values = data.map(d => Number(d.x)).filter(n => !isNaN(n)).sort((a, b) => a - b)
-                                  if (values.length > 0) {
-                                    const mid = Math.floor(values.length / 2)
-                                    const median = values.length % 2 !== 0 ? values[mid] : (values[mid - 1] + values[mid]) / 2
-                                    handleConfigChange('xThreshold', median.toFixed(2))
-                                  }
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
-                                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
-                              >
-                                {t('button.median')}
-                              </span>
-                            </span>
-                          )
-                        )}
-                      </div>
-                      {/* 分割线值输入控件：类目轴用下拉框，数值轴用输入框 */}
-                      {resolvedXType === 'category' ? (
-                        <Select
-                          value={config.xThreshold}
-                          onChange={(value) => handleConfigChange('xThreshold', value)}
-                          placeholder={t('placeholder.splitAfterOption')}
-                          style={{ width: '100%' }}
-                        >
-                          {finalXOptions?.map(opt => (
-                            <Select.Option key={opt} value={opt}>{opt}</Select.Option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <Input
-                          value={config.xThreshold}
-                          onChange={(value) => handleConfigChange('xThreshold', value)}
-                          placeholder={t('placeholder.splitAtValue')}
-                          style={{ width: '100%' }}
-                          type="number"
-                        />
-                      )}
-                    </div>
-
-                    {/* ===== 纵轴分割线配置 ===== */}
-                    <div style={{ marginBottom: '24px' }}>
-                      {/* 标题行：包含标签和辅助操作按钮 */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <Text strong>{t('label.yAxisSplit')}</Text>
-                        {/* 根据是否已设置分割线值，显示不同的辅助按钮 */}
-                        {config.yThreshold ? (
-                          // 已设置分割线时：显示"清除"按钮
-                          <span
-                            style={{ cursor: 'pointer', fontSize: '12px', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
-                            onClick={() => handleConfigChange('yThreshold', undefined)}
-                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
-                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
-                          >
-                            {t('label.clear')}
-                          </span>
-                        ) : (
-                          // 未设置分割线时：根据轴类型显示不同的快捷填充按钮
-                          resolvedYType === 'category' ? (
-                            // 类目轴：显示"选择中间项"按钮
-                            <span
-                              style={{ cursor: 'pointer', fontSize: '12px', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
-                              onClick={() => {
-                                // 计算类目列表的中间索引并选中
-                                if (finalYOptions && finalYOptions.length > 0) {
-                                  const middleIndex = Math.floor((finalYOptions.length - 1) / 2)
-                                  handleConfigChange('yThreshold', finalYOptions[middleIndex])
-                                }
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
-                              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
-                            >
-                              {t('button.selectMiddle')}
-                            </span>
-                          ) : (
-                            // 数值轴：显示"填入 平均值｜中位数"按钮
-                            <span key="y-fill-helper" style={{ fontSize: '12px', userSelect: 'none', color: 'var(--semi-color-text-1)' }}>
-                              {t('button.fillPrefix')}{' '}
-                              {/* 平均值按钮 */}
-                              <span
-                                style={{ cursor: 'pointer', color: 'var(--semi-color-text-1)' }}
-                                onClick={() => {
-                                  // 计算平均值：所有有效数值的算术平均
-                                  const values = data.map(d => Number(d.y)).filter(n => !isNaN(n)).sort((a, b) => a - b)
-                                  if (values.length > 0) {
-                                    const sum = values.reduce((a, b) => a + b, 0)
-                                    const avg = sum / values.length
-                                    handleConfigChange('yThreshold', avg.toFixed(2))
-                                  }
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
-                                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
-                              >
-                                {t('button.average')}
-                              </span>
-                              <span style={{ margin: '0 2px', color: 'var(--semi-color-text-1)' }}>|</span>
-                              {/* 中位数按钮 */}
-                              <span
-                                style={{ cursor: 'pointer', color: 'var(--semi-color-text-1)' }}
-                                onClick={() => {
-                                  // 计算中位数：
-                                  // 1. 将所有有效数值排序
-                                  // 2. 如果数据个数为奇数，取中间值
-                                  // 3. 如果数据个数为偶数，取中间两个值的平均
-                                  const values = data.map(d => Number(d.y)).filter(n => !isNaN(n)).sort((a, b) => a - b)
-                                  if (values.length > 0) {
-                                    const mid = Math.floor(values.length / 2)
-                                    const median = values.length % 2 !== 0 ? values[mid] : (values[mid - 1] + values[mid]) / 2
-                                    handleConfigChange('yThreshold', median.toFixed(2))
-                                  }
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
-                                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
-                              >
-                                {t('button.median')}
-                              </span>
-                            </span>
-                          )
-                        )}
-                      </div>
-                      {/* 分割线值输入控件：类目轴用下拉框，数值轴用输入框 */}
-                      {resolvedYType === 'category' ? (
-                        <Select
-                          value={config.yThreshold}
-                          onChange={(value) => handleConfigChange('yThreshold', value)}
-                          placeholder={t('placeholder.splitAfterOption')}
-                          style={{ width: '100%' }}
-                        >
-                          {finalYOptions?.map(opt => (
-                            <Select.Option key={opt} value={opt}>{opt}</Select.Option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <Input
-                          value={config.yThreshold}
-                          onChange={(value) => handleConfigChange('yThreshold', value)}
-                          placeholder={t('placeholder.splitAtValue')}
-                          style={{ width: '100%' }}
-                          type="number"
-                        />
-                      )}
-                    </div>
-
-                    {/* ===== 象限名称和颜色配置 ===== */}
-                    {/* 仅当设置了至少一条分割线时才显示此配置区域 */}
-                    {(config.xThreshold || config.yThreshold) && (
-                      <div style={{ borderTop: '1px solid var(--semi-color-border)', paddingTop: '20px' }}>
-                        {/* 配置区域标题 */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-                          <Text strong>{t('label.quadrantName')}</Text>
-                          <Text strong>{t('label.backgroundColor')}</Text>
-                        </div>
-
-                        {/**
-                         * 象限配置项说明：
-                         * 
-                         * 根据分割线的设置情况，显示的象限数量和名称不同：
-                         * - 仅设置 X 轴分割线：显示左右两个区域（Left/Right）
-                         * - 仅设置 Y 轴分割线：显示上下两个区域（Top/Bottom）
-                         * - 同时设置 X 和 Y 轴分割线：显示四个象限（TL/TR/BL/BR）
-                         * 
-                         * 配置项复用策略：
-                         * - quadrantTL: 四象限时为左上，仅 X 轴时为左，仅 Y 轴时为上
-                         * - quadrantTR: 四象限时为右上，仅 X 轴时为右
-                         * - quadrantBL: 四象限时为左下，仅 Y 轴时为下
-                         * - quadrantBR: 仅四象限时使用，为右下
-                         */}
-
-                        {/* 第一个区域：左上 / 左 / 上 */}
-                        <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'center' }}>
-                          <Input
-                            value={config.quadrantTLName}
-                            onChange={(value) => handleConfigChange('quadrantTLName', value)}
-                            placeholder={
-                              config.xThreshold && config.yThreshold ? t('placeholder.quadrantTL') :
-                                config.xThreshold ? t('placeholder.quadrantLeft') : t('placeholder.quadrantTop')
-                            }
-                            style={{ flex: 1 }}
-                          />
-                          <ColorPicker
-                            value={config.quadrantTLColor || '#FFFFFF'}
-                            onChange={(color) => handleConfigChange('quadrantTLColor', color)}
-                          />
-                        </div>
-
-                        {/* Top-Right / Right */}
-                        {(config.xThreshold) && (
-                          <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'center' }}>
-                            <Input
-                              value={config.quadrantTRName}
-                              onChange={(value) => handleConfigChange('quadrantTRName', value)}
-                              placeholder={
-                                config.yThreshold ? t('placeholder.quadrantTR') : t('placeholder.quadrantRight')
-                              }
-                              style={{ flex: 1 }}
-                            />
-                            <ColorPicker
-                              value={config.quadrantTRColor || '#FFFFFF'}
-                              onChange={(color) => handleConfigChange('quadrantTRColor', color)}
-                            />
-                          </div>
-                        )}
-
-                        {/* Bottom-Left / Bottom */}
-                        {(config.yThreshold) && (
-                          <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'center' }}>
-                            <Input
-                              value={config.quadrantBLName}
-                              onChange={(value) => handleConfigChange('quadrantBLName', value)}
-                              placeholder={
-                                config.xThreshold ? t('placeholder.quadrantBL') : t('placeholder.quadrantBottom')
-                              }
-                              style={{ flex: 1 }}
-                            />
-                            <ColorPicker
-                              value={config.quadrantBLColor || '#FFFFFF'}
-                              onChange={(color) => handleConfigChange('quadrantBLColor', color)}
-                            />
-                          </div>
-                        )}
-
-                        {/* Bottom-Right */}
-                        {(config.xThreshold && config.yThreshold) && (
-                          <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'center' }}>
-                            <Input
-                              value={config.quadrantBRName}
-                              onChange={(value) => handleConfigChange('quadrantBRName', value)}
-                              placeholder={t('placeholder.quadrantBR')}
-                              style={{ flex: 1 }}
-                            />
-                            <ColorPicker
-                              value={config.quadrantBRColor || '#FFFFFF'}
-                              onChange={(color) => handleConfigChange('quadrantBRColor', color)}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <QuadrantConfigPanel
+                    config={config}
+                    resolvedXType={resolvedXType}
+                    resolvedYType={resolvedYType}
+                    finalXOptions={finalXOptions}
+                    finalYOptions={finalYOptions}
+                    data={data}
+                    handleConfigChange={handleConfigChange}
+                    t={t}
+                  />
                 )}
               </TabPane>
+
               <TabPane tab={t('tab.advanced')} itemKey="advanced">
                 {(!config.dataSource || !config.xField || !config.yField) ? (
                   <div style={{ padding: '20px', textAlign: 'center', color: 'var(--semi-color-text-1)' }}>

@@ -10,7 +10,9 @@
         "multiColor": "多彩气泡",
         "showLabel": "名称常显",
         "xAxisSplit": "横轴分割线",
+        "xAxisSplit2": "横轴分割线2",
         "yAxisSplit": "纵轴分割线",
+        "yAxisSplit2": "纵轴分割线2",
         "quadrantName": "象限名称",
         "backgroundColor": "背景色",
         "colorGroup": "气泡分组"
@@ -31,7 +33,22 @@
         "quadrantBL": "左下象限名称",
         "quadrantBottom": "下象限名称",
         "quadrantBR": "右下象限名称",
-        "selectColorGroup": "选择分组方式"
+        "selectColorGroup": "选择分组方式",
+        "regionLeft": "左象限名称",
+        "regionMiddleH": "中象限名称",
+        "regionRight": "右象限名称",
+        "regionTop": "上象限名称",
+        "regionMiddleV": "中象限名称",
+        "regionBottom": "下象限名称",
+        "regionTopLeft": "左上象限名称",
+        "regionTopMiddle": "中上象限名称",
+        "regionTopRight": "右上象限名称",
+        "regionMiddleLeft": "左中象限名称",
+        "regionCenter": "中象限名称",
+        "regionMiddleRight": "右中象限名称",
+        "regionBottomLeft": "左下象限名称",
+        "regionBottomMiddle": "中下象限名称",
+        "regionBottomRight": "右下象限名称"
     },
     "tooltip": {
         "bubbleName": "如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据"
@@ -42,7 +59,8 @@
         "average": "平均值",
         "fillMedian": "填入中位数",
         "fillPrefix": "填入",
-        "selectMiddle": "选择中间项"
+        "selectMiddle": "选择中间项",
+        "addSplitLine": "添加分割线"
     },
     "chart": {
         "loading": "数据加载中...",
