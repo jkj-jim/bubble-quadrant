@@ -12,7 +12,7 @@
   "output": "dist",
   "dependencies": {
     "@douyinfe/semi-ui": "^2.60.0",
-    "@lark-base-open/js-sdk": "^0.4.0-alpha.1",
+    "@lark-base-open/js-sdk": "^1.0.0",
     "@semi-bot/semi-theme-feishu-dashboard": "^1.0.4",
     "echarts": "^6.0.0",
     "i18next": "^25.6.3",

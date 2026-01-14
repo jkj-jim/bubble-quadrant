@@ -15,7 +15,8 @@
         "yAxisSplit2": "Y Split 2",
         "quadrantName": "Region Name",
         "backgroundColor": "Background Color",
-        "colorGroup": "Color Group"
+        "colorGroup": "Color Group",
+        "multidimTable": "Base"
     },
     "placeholder": {
         "selectField": "Select Field",
@@ -34,6 +35,7 @@
         "quadrantBottom": "Bottom Name",
         "quadrantBR": "Bottom-Right Name",
         "selectColorGroup": "Select Grouping",
+        "selectBase": "Select Base",
         "regionLeft": "Left Region",
         "regionMiddleH": "Middle Region",
         "regionRight": "Right Region",
@@ -51,7 +53,13 @@
         "regionBottomRight": "Bottom-Right Region"
     },
     "tooltip": {
-        "bubbleName": "If empty, all data is shown; if set, only data with this field non-empty is shown"
+        "bubbleName": "If empty, all data is shown; if set, only data with this field non-empty is shown",
+        "openBase": "Go to this base",
+        "basePermission": "Only supports selecting bases with editable or higher permissions in the current space. If advanced permissions are enabled, manage permissions are required"
+    },
+    "empty": {
+        "noData": "No data",
+        "noMatch": "No matching results"
     },
     "button": {
         "saveAndView": "Save & View",

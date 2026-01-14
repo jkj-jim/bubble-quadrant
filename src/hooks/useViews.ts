@@ -1,3 +1,11 @@
+/**
+ * useViews.ts - 视图管理 hook
+ *
+ * 功能说明：
+ * 获取指定数据表的所有视图列表
+ * 支持应用插件模式（从 workspace 获取的 base 实例）
+ */
+
 import { useEffect, useState } from 'react'
 import { bitable } from '@lark-base-open/js-sdk'
 
@@ -6,7 +14,13 @@ export interface ViewInfo {
     name: string
 }
 
-export const useViews = (tableId?: string) => {
+/**
+ * useViews - 视图 hook
+ * 参数：
+ * - tableId: 数据表 ID
+ * - baseInstance: 可选的 base 实例（应用插件模式下使用）
+ */
+export const useViews = (tableId?: string, baseInstance?: any) => {
     const [views, setViews] = useState<ViewInfo[]>([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -20,10 +34,12 @@ export const useViews = (tableId?: string) => {
 
             try {
                 setLoading(true)
-                const table = await bitable.base.getTable(tableId)
+                // 使用传入的 baseInstance，如果没有则使用默认的 bitable.base
+                const currentBase = baseInstance || bitable.base
+                const table = await currentBase.getTable(tableId)
                 const viewList = await table.getViewList()
 
-                const viewsData = await Promise.all(viewList.map(async (view) => {
+                const viewsData = await Promise.all(viewList.map(async (view: any) => {
                     const name = await view.getName()
                     return {
                         id: view.id,
@@ -43,7 +59,7 @@ export const useViews = (tableId?: string) => {
         }
 
         fetchViews()
-    }, [tableId])
+    }, [tableId, baseInstance])
 
     return { views, loading, error }
 }

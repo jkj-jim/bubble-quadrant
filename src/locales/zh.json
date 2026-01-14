@@ -15,7 +15,8 @@
         "yAxisSplit2": "纵轴分割线2",
         "quadrantName": "象限名称",
         "backgroundColor": "背景色",
-        "colorGroup": "气泡分组"
+        "colorGroup": "气泡分组",
+        "multidimTable": "多维表格"
     },
     "placeholder": {
         "selectField": "请选择字段",
@@ -34,6 +35,7 @@
         "quadrantBottom": "下象限名称",
         "quadrantBR": "右下象限名称",
         "selectColorGroup": "选择分组方式",
+        "selectBase": "请选择多维表格",
         "regionLeft": "左象限名称",
         "regionMiddleH": "中象限名称",
         "regionRight": "右象限名称",
@@ -51,7 +53,13 @@
         "regionBottomRight": "右下象限名称"
     },
     "tooltip": {
-        "bubbleName": "如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据"
+        "bubbleName": "如果为空，则显示所有数据；如果不为空，则只显示该字段不为空的数据",
+        "openBase": "跳转到多维表格",
+        "basePermission": "仅支持选择当前空间内有可编辑及以上权限的多维表格。若多维表格开启了高级权限，则需拥有可管理及以上权限"
+    },
+    "empty": {
+        "noData": "暂无数据",
+        "noMatch": "暂无匹配结果"
     },
     "button": {
         "saveAndView": "保存并查看",

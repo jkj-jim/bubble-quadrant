@@ -466,6 +466,17 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     // 类目轴：使用数值轴"伪装"
     if (axisConfig.type === 'category' && axisConfig.mapper && axisConfig.mapper.length > 0) {
       const mapperConfig = axisConfig.mapper.getAxisConfig()
+      // 原始 formatter 将索引转换为类目文本
+      const originalFormatter = mapperConfig.axisLabel.formatter
+      // 包装 formatter：先转换为文本，再截断超长文本
+      const truncatedFormatter = (value: number) => {
+        const text = originalFormatter(value)
+        const maxLen = 6  // 最大显示字符数
+        if (typeof text === 'string' && text.length > maxLen) {
+          return text.slice(0, maxLen - 1) + '...'
+        }
+        return text
+      }
       return {
         ...baseConfig,
         type: 'value' as const,  // 关键：使用数值轴
@@ -474,8 +485,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         splitNumber: mapperConfig.splitNumber,
         axisLabel: {
           color: chartStyles.colors.axisLabel,
-          // 使用 mapper 的 formatter 将数值索引还原为类目文本
-          formatter: mapperConfig.axisLabel.formatter
+          // 使用截断 formatter，防止超长文本压缩图表
+          formatter: truncatedFormatter
         },
         // 禁用 scale，使用固定的 min/max
         scale: false

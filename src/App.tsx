@@ -36,6 +36,8 @@ import { useViews } from './hooks/useViews'
 import { useData3 as useData } from './hooks/useData3'
 import { BubbleChart } from './components/BubbleChart'
 import { useGridRegions } from './hooks/useGridRegions'
+import { useWorkspace } from './hooks/useWorkspace'
+import { BaseSelector } from './components/BaseSelector'
 
 
 const { Text } = Typography
@@ -77,7 +79,7 @@ const FieldSelect: React.FC<{
           <Text strong>{label}</Text>
           {tooltip && (
             <Tooltip content={tooltip}>
-              <IconIssueStroked style={{ color: 'var(--semi-color-text-2)', marginLeft: 4, cursor: 'help' }} />
+              <IconIssueStroked style={{ color: 'var(--semi-color-text-2)', marginLeft: 4, fontSize: 14, cursor: 'pointer' }} />
             </Tooltip>
           )}
         </div>
@@ -497,17 +499,29 @@ function App() {
     isConfig
   } = useDashboard()
 
+  // 2. 初始化 Workspace 钩子（用于应用插件模式）
+  const {
+    needChangeBase,
+    baseToken,
+    setBaseToken,
+    bitable: workspaceBitable,
+    loading: workspaceLoading  // 用于 BaseSelector 的加载状态
+  } = useWorkspace()
+
   // 获取所有工作表列表（用于数据源选择）
-  const { tables, loading: tablesLoading } = useTables()
+  // 应用插件模式下传入 workspaceBitable.base 以获取对应多维表格的数据表
+  const { tables, loading: tablesLoading } = useTables(workspaceBitable?.base)
 
   // 当前配置状态（数据源、字段选择等）
   const [config, setConfig] = useState<BubbleChartConfig>({})
 
   // 根据选中的数据源表，获取数字字段、文本字段、类目字段和颜色分组字段列表
-  const { fields, numericFields, textFields, categoryFields, colorGroupFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource)
+  // 应用插件模式下传入 workspaceBitable.base
+  const { fields, numericFields, textFields, categoryFields, colorGroupFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource, workspaceBitable?.base)
 
   // 获取数据源下的所有视图列表
-  const { views, loading: viewsLoading } = useViews(config.dataSource)
+  // 应用插件模式下传入 workspaceBitable.base
+  const { views, loading: viewsLoading } = useViews(config.dataSource, workspaceBitable?.base)
 
   // 获取横轴字段的选项（如果是单选字段）
   // 重要：无论xFieldType是什么，都尝试获取选项。如果字段不是单选，useFieldOptions会返回空数组
@@ -527,7 +541,8 @@ function App() {
 
   // 根据当前配置获取和处理气泡图数据
   // useData hook 现在会返回 data 和最终用于渲染的 options，以及自动检测出的轴类型
-  const { data, loading: dataLoading, finalXOptions, finalYOptions, resolvedXType, resolvedYType } = useData(config, state, liveXFieldOptions, liveYFieldOptions)
+  // 应用插件模式下传入 workspaceBitable.base
+  const { data, loading: dataLoading, finalXOptions, finalYOptions, resolvedXType, resolvedYType } = useData(config, state, liveXFieldOptions, liveYFieldOptions, workspaceBitable?.base)
 
   /**
    * useEffect: 组件挂载时加载已保存的配置（初始化）
@@ -620,13 +635,58 @@ function App() {
 
 
   /**
-   * useEffect: 自动填充 - 新建图表时选择第一个数据源
+   * useEffect: 应用插件模式 - 当多维表格切换时，重置配置
+   * 【优化】：不立即清空配置，而是等 tables 加载后一次性更新
+   */
+  const prevBaseTokenRef = useRef<string | undefined>(undefined)
+  const [pendingBaseSwitch, setPendingBaseSwitch] = useState(false)
+
+  useEffect(() => {
+    // 仅在应用插件模式下处理
+    if (!needChangeBase) return
+
+    // 如果是首次加载（prevBaseTokenRef 为空），跳过重置
+    if (prevBaseTokenRef.current === undefined) {
+      prevBaseTokenRef.current = baseToken
+      return
+    }
+
+    // 如果 baseToken 发生变化，标记需要切换
+    if (baseToken && prevBaseTokenRef.current !== baseToken) {
+      console.log('[App] 多维表格切换，等待 tables 加载')
+      prevBaseTokenRef.current = baseToken
+      setPendingBaseSwitch(true)
+    }
+  }, [needChangeBase, baseToken])
+
+
+  /**
+   * useEffect: 自动填充数据源
+   * 【优化】：
+   * - 应用模式切换多维表格时，等待 tables 加载完成后一次性重置配置并选择第一个数据源
+   * - 仪表盘模式或普通情况下，只在 dataSource 无效时自动选择
    */
   useEffect(() => {
-    if (state === 'create' && tables.length > 0 && !config.dataSource) {
+    if (tables.length === 0) return
+
+    // 检查当前 dataSource 是否有效（存在于 tables 列表中）
+    const isDataSourceValid = config.dataSource && tables.some(t => t.id === config.dataSource)
+
+    // 应用模式切换多维表格的情况：一次性重置配置并选择第一个数据源
+    if (pendingBaseSwitch) {
+      console.log('[App] 多维表格切换完成，一次性设置新配置:', tables[0].name)
+      setPendingBaseSwitch(false)
+      // 使用 setConfig 一次性设置，而不是先清空再填充
+      setConfig({ dataSource: tables[0].id })
+      return
+    }
+
+    // 普通情况：dataSource 无效时自动选择第一个
+    if (!isDataSourceValid) {
+      console.log('[App] 自动选择第一个数据源:', tables[0].name)
       handleConfigChange('dataSource', tables[0].id)
     }
-  }, [state, tables, config.dataSource])
+  }, [tables, config.dataSource, pendingBaseSwitch])
 
 
   /**
@@ -806,6 +866,8 @@ function App() {
       tableId: dataSource,
       groups: nameField ? [{ fieldId: nameField }] : [],
       series: series,
+      // 应用插件模式必须传 baseToken
+      ...(needChangeBase && baseToken ? { baseToken } : {})
     }
 
     const configToSave: BubbleChartConfig = {
@@ -815,11 +877,22 @@ function App() {
     }
 
     try {
-      await dashboard.saveConfig({
-        // @ts-ignore - TypeScript 类型推导限制
-        dataConditions: dataConditions,
-        customConfig: configToSave
-      })
+      // 根据模式选择保存方式
+      if (needChangeBase && workspaceBitable) {
+        // 应用插件模式：使用 workspace 获取的 bitable 实例
+        await workspaceBitable.dashboard.saveConfig({
+          // @ts-ignore - TypeScript 类型推导限制
+          dataConditions: dataConditions,
+          customConfig: configToSave
+        })
+      } else {
+        // 仪表盘插件模式：使用默认 dashboard
+        await dashboard.saveConfig({
+          // @ts-ignore - TypeScript 类型推导限制
+          dataConditions: dataConditions,
+          customConfig: configToSave
+        })
+      }
 
       console.log('[App] 配置保存成功')
       // 保存成功后，不再需要手动更新本地 state
@@ -959,6 +1032,15 @@ function App() {
               }}
             >
               <TabPane tab={t('tab.bubble')} itemKey="bubble">
+                {/* 多维表格选择器：仅在应用插件模式下显示 */}
+                {needChangeBase && (
+                  <BaseSelector
+                    baseToken={baseToken}
+                    onChange={setBaseToken}
+                    loading={workspaceLoading}
+                  />
+                )}
+
                 {/* 数据源选择：必须先选择数据源，才会显示其他字段 */}
                 <div style={{ marginBottom: '20px' }}>
                   <Text strong style={{ display: 'block', marginBottom: 8 }}>{t('label.dataSource')}</Text>
@@ -1066,25 +1148,6 @@ function App() {
                             <Text>{t('label.showLabel')}</Text>
                           </Checkbox>
                         )}
-
-                        <div style={{ marginLeft: 'auto' }}>
-                          <a
-                            href="https://ai.feishu.cn/wiki/EbYewxi0yiUfd1kV8Jhccsp5nwh"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              color: 'var(--semi-color-info)',
-                              textDecoration: 'none',
-                              fontSize: '14px',
-                              fontWeight: 'normal',
-                              cursor: 'pointer'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-info-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-info)'}
-                          >
-                            更多说明
-                          </a>
-                        </div>
                       </div>
                     </div>
                   </>
@@ -1171,11 +1234,29 @@ function App() {
           </div>
 
           {/* 底部按钮区域：固定在底部 */}
-          <div style={{ height: '40px', padding: '15px 20px', borderTop: '1px solid var(--semi-color-border)', background: 'transparent' }}>
+          <div style={{ height: '40px', padding: '15px 20px', borderTop: '1px solid var(--semi-color-border)', background: 'transparent', display: 'flex', alignItems: 'center', gap: '20px' }}>
+            {/* 更多说明链接 */}
+            <a
+              href="https://ai.feishu.cn/wiki/EbYewxi0yiUfd1kV8Jhccsp5nwh"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: 'var(--semi-color-text-2)',
+                textDecoration: 'none',
+                fontSize: '14px',
+                fontWeight: 'normal',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-2)'}
+            >
+              更多说明
+            </a>
             <Button
               type="primary"
               theme="solid"
-              style={{ width: '100%' }}  // 按钮占满宽度
+              style={{ flex: 1, height: '40px' }}  // 按钮占据剩余宽度，高度34px
               loading={dataLoading}
               disabled={!config.dataSource || !config.xField || !config.yField}  // 必填项未选择时禁用
               onClick={handleSave}

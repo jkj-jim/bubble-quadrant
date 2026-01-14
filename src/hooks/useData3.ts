@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { bitable } from '@lark-base-open/js-sdk'
 import type { BubbleChartConfig } from './useDashboard'
 
+// 默认 base 实例（仪表盘插件模式使用）
+const defaultBase = bitable.base
+
 /**
  * DataItem - 数据项接口
  * 功能：定义气泡图中每个数据点的结构
@@ -156,11 +159,22 @@ const extractTextFromField = (value: any): string => {
   return String(value)
 }
 
+/**
+ * useData3 - 数据获取 hook
+ *
+ * 参数：
+ * - config: 图表配置
+ * - state: 当前状态
+ * - liveXFieldOptions: X轴实时选项
+ * - liveYFieldOptions: Y轴实时选项
+ * - baseInstance: 可选的 base 实例（应用插件模式下使用）
+ */
 export const useData3 = (
   config: BubbleChartConfig,
   state: string,
   liveXFieldOptions?: string[],
   liveYFieldOptions?: string[],
+  baseInstance?: any,
 ) => {
   const [data, setData] = useState<DataItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -195,7 +209,9 @@ export const useData3 = (
       // console.log('[useData3] 字段类型:', { xFieldType, yFieldType })
 
       try {
-        const table = await bitable.base.getTable(dataSource)
+        // 使用传入的 baseInstance，如果没有则使用默认的 base
+        const currentBase = baseInstance || defaultBase
+        const table = await currentBase.getTable(dataSource)
         // 如果 viewId 存在，则传入 viewId 进行过滤；否则传入空对象获取全部数据
         const recordResult = await table.getRecords({ viewId: viewId || undefined })
 
@@ -321,6 +337,7 @@ export const useData3 = (
     config,
     liveXFieldOptions,
     liveYFieldOptions,
+    baseInstance, // 添加 baseInstance 作为依赖
   ]) // 关键：依赖项不包含 state，因此 state 的变化不会直接触发数据重获取
 
   return { data, loading, finalXOptions, finalYOptions, resolvedXType, resolvedYType }

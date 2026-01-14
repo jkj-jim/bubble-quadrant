@@ -8,17 +8,25 @@
         "bubbleSize": "バブルサイズ",
         "bubbleName": "バブル名",
         "multiColor": "カラフル",
-        "showLabel": "ラベルを表示"
+        "showLabel": "ラベルを表示",
+        "multidimTable": "多次元テーブル"
     },
     "placeholder": {
         "selectField": "フィールドを選択",
         "selectWorksheet": "ワークシートを選択",
         "allData": "すべてのデータ",
         "selectNumericField": "数値フィールドを選択",
-        "selectTextField": "テキストフィールドを選択"
+        "selectTextField": "テキストフィールドを選択",
+        "selectBase": "多次元テーブルを選択"
     },
     "tooltip": {
-        "bubbleName": "空の場合、すべてのデータが表示されます。設定されている場合、このフィールドが空でないデータのみが表示されます"
+        "bubbleName": "空の場合、すべてのデータが表示されます。設定されている場合、このフィールドが空でないデータのみが表示されます",
+        "openBase": "この多次元テーブルに移動",
+        "basePermission": "現在のスペース内で編集権限以上の多次元テーブルのみ選択できます。高度な権限が有効な場合は、管理権限が必要です"
+    },
+    "empty": {
+        "noData": "データがありません",
+        "noMatch": "一致する結果がありません"
     },
     "button": {
         "saveAndView": "保存して表示"

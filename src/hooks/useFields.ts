@@ -22,7 +22,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { base, FieldType } from '@lark-base-open/js-sdk'
+import { base as defaultBase, FieldType } from '@lark-base-open/js-sdk'
 import type { FieldInfo } from './useDashboard'
 
 /**
@@ -81,6 +81,7 @@ const COLOR_GROUP_FIELD_TYPES = [
  *
  * 参数：
  * - tableId: 工作表ID（可选，如果为undefined则返回空数组）
+ * - baseInstance: 可选的 base 实例（应用插件模式下使用）
  *
  * 返回：
  * - fields: 所有字段列表
@@ -90,7 +91,7 @@ const COLOR_GROUP_FIELD_TYPES = [
  * - loading: 加载状态
  * - error: 错误信息
  */
-export const useFields = (tableId?: string) => {
+export const useFields = (tableId?: string, baseInstance?: any) => {
   const [fields, setFields] = useState<FieldInfo[]>([])
   const [numericFields, setNumericFields] = useState<FieldInfo[]>([])
   const [textFields, setTextFields] = useState<FieldInfo[]>([])
@@ -126,8 +127,9 @@ export const useFields = (tableId?: string) => {
         setLoading(true)
         setError(null)
 
-        // 获取指定工作表
-        const table = await base.getTableById(tableId)
+        // 获取指定工作表（使用传入的 baseInstance，如果没有则使用默认的 base）
+        const currentBase = baseInstance || defaultBase
+        const table = await currentBase.getTableById(tableId)
         // 获取工作表的所有字段元数据
         const fieldMetas = await table.getFieldMetaList()
 
@@ -138,7 +140,7 @@ export const useFields = (tableId?: string) => {
         const colorGroup: FieldInfo[] = []  // 支持颜色分组的字段
 
         // 遍历所有字段，按类型分类
-        fieldMetas.forEach(meta => {
+        fieldMetas.forEach((meta: any) => {
           // 检查公式字段是否为数值类型（通过 formatter 判断）
           let isNumericFormula = false
           let isTextFormula = false
@@ -216,7 +218,7 @@ export const useFields = (tableId?: string) => {
     }
 
     fetchFields()
-  }, [tableId])
+  }, [tableId, baseInstance])
 
   /**
    * 返回字段列表、分类字段、加载状态和错误信息
