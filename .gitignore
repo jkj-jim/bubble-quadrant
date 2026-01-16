@@ -27,6 +27,7 @@ node_modules
 claude.md
 backup/*
 飞书官方项目示例/*
+已上架应用插件/*
 
 # 下面的文件在开发模式时进行注释，提交的时候取消注释
 .gemini/*

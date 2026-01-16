@@ -35,6 +35,7 @@ import { Empty, Toast } from '@douyinfe/semi-ui'
 export interface BubbleChartProps {
   data: DataItem[]
   loading: boolean
+  permissionDenied?: boolean   // 权限错误状态（应用模式下无权限访问数据源）
   config: BubbleChartConfig
   theme?: string
   xFieldName?: string       // 横轴字段名（用于显示）
@@ -288,6 +289,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   sizeFieldName,
   nameFieldName,
   loading,
+  permissionDenied,  // 权限错误状态
   theme,
   xAxisType = 'value',  // 默认为数值轴，向后兼容
   yAxisType = 'value',  // 默认为数值轴，向后兼容
@@ -1559,7 +1561,18 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
   }, [data, getThresholdValues, xAxisType, yAxisType, xAxisData, yAxisData, sizeFieldName]) // Deps need to be correct
 
+  // 无数据时的显示逻辑：区分权限错误和真的没数据
   if (!data || data.length === 0) {
+    // 权限错误时显示特定提示
+    if (permissionDenied) {
+      return (
+        <Empty
+          description={t('empty.noPermission', '当前数据源暂无权限，请切换同表格的其他数据源并保存后，再次尝试配置当前数据源')}
+          style={{ marginTop: '20%' }}
+        />
+      )
+    }
+    // 真的没数据
     return (
       <Empty
         description={t('noData', '暂无数据')}

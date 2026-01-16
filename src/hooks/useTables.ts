@@ -19,7 +19,6 @@
  */
 
 import { useEffect, useState } from 'react'
-import { base as defaultBase } from '@lark-base-open/js-sdk'
 import type { TableInfo } from './useDashboard'
 
 /**
@@ -44,15 +43,20 @@ export const useTables = (baseInstance?: any) => {
    */
   useEffect(() => {
     const fetchTables = async () => {
+      // 如果 baseInstance 为 null/undefined，清空数据并等待有效实例
+      // 【关键修复】必须清空 tables，否则旧数据会导致自动填充逻辑误判
+      if (!baseInstance) {
+        setTables([])  // 清空旧数据
+        setLoading(true)  // 标记为加载中，等待有效实例
+        return
+      }
+
       try {
         setLoading(true)
         // 注意：不要先清空列表，避免闪烁，直接用新数据覆盖旧数据
 
-        // 使用传入的 baseInstance，如果没有则使用默认的 base
-        const currentBase = baseInstance || defaultBase
-
         // 使用 getTableList 获取所有表格
-        const tableList = await currentBase.getTableList()
+        const tableList = await baseInstance.getTableList()
 
         // 并行获取每个表格的元数据（id和name）
         const tablesWithMeta = await Promise.all(

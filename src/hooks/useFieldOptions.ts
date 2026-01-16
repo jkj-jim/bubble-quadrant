@@ -60,7 +60,8 @@ interface OptionsCache {
 export const useFieldOptions = (
   tableId?: string,
   fieldId?: string,
-  enabled: boolean = true
+  enabled: boolean = true,
+  baseInstance?: any  // 应用插件模式下传入 workspaceBitable.base
 ) => {
   const [options, setOptions] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
@@ -128,8 +129,9 @@ export const useFieldOptions = (
    */
   const fetchOptions = async (tid: string, fid: string): Promise<string[]> => {
     try {
-      // 获取工作表
-      const table = await base.getTableById(tid)
+      // 获取工作表（使用传入的 baseInstance，如果没有则使用默认的 base）
+      const currentBase = baseInstance || base
+      const table = await currentBase.getTableById(tid)
       // 获取字段
       const field = await table.getField(fid)
       // 获取字段元数据，判断是否为单选字段
@@ -223,7 +225,7 @@ export const useFieldOptions = (
     return () => {
       isMounted = false
     }
-  }, [tableId, fieldId, enabled])
+  }, [tableId, fieldId, enabled, baseInstance])
 
   /**
    * refetch - 手动刷新选项

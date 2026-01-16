@@ -508,20 +508,57 @@ function App() {
     loading: workspaceLoading  // 用于 BaseSelector 的加载状态
   } = useWorkspace()
 
+  // 3. bitable 实例就绪状态管理（应用模式下需要等待 bitable 实例更新后再使用）
+  const [isBitableReady, setIsBitableReady] = useState(!needChangeBase) // 仪表盘模式下始终就绪
+
+  // 《重要》多维表格切换等待状态（提前声明，以便在 effectiveBase 计算中使用）
+  const prevBaseTokenRef = useRef<string | undefined>(undefined)
+  const [pendingBaseSwitch, setPendingBaseSwitch] = useState(false)
+
+  // 当 baseToken 变化时，标记 bitable 未就绪，并检测是否需要切换
+  useEffect(() => {
+    if (needChangeBase) {
+      setIsBitableReady(false)
+      // 检测多维表格切换（非首次加载）
+      if (prevBaseTokenRef.current !== undefined && baseToken && prevBaseTokenRef.current !== baseToken) {
+        console.log('[App] 多维表格切换，等待 tables 加载')
+        setPendingBaseSwitch(true)
+      }
+      prevBaseTokenRef.current = baseToken
+    }
+  }, [needChangeBase, baseToken])
+
+  // 当 workspaceBitable 更新后，标记 bitable 已就绪
+  useEffect(() => {
+    if (needChangeBase && workspaceBitable) {
+      setIsBitableReady(true)
+      console.log('[App] bitable 实例已就绪')
+    } else if (!needChangeBase) {
+      // 仪表盘模式始终就绪
+      setIsBitableReady(true)
+    }
+  }, [needChangeBase, workspaceBitable])
+
+  // 计算有效的 base 实例
+  // 《关键修复》在以下情况返回 null，阻止 hooks 使用过期的 tableId：
+  // 1. bitable 未就绪（workspaceBitable 还在加载中）
+  // 2. 正在等待多维表格切换完成（pendingBaseSwitch 为 true，配置尚未重置）
+  const effectiveBase = (isBitableReady && !pendingBaseSwitch) ? workspaceBitable?.base : null
+
   // 获取所有工作表列表（用于数据源选择）
   // 应用插件模式下传入 workspaceBitable.base 以获取对应多维表格的数据表
-  const { tables, loading: tablesLoading } = useTables(workspaceBitable?.base)
+  const { tables, loading: tablesLoading } = useTables(effectiveBase)
 
   // 当前配置状态（数据源、字段选择等）
   const [config, setConfig] = useState<BubbleChartConfig>({})
 
   // 根据选中的数据源表，获取数字字段、文本字段、类目字段和颜色分组字段列表
   // 应用插件模式下传入 workspaceBitable.base
-  const { fields, numericFields, textFields, categoryFields, colorGroupFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource, workspaceBitable?.base)
+  const { fields, numericFields, textFields, categoryFields, colorGroupFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource, effectiveBase)
 
   // 获取数据源下的所有视图列表
   // 应用插件模式下传入 workspaceBitable.base
-  const { views, loading: viewsLoading } = useViews(config.dataSource, workspaceBitable?.base)
+  const { views, loading: viewsLoading } = useViews(config.dataSource, effectiveBase)
 
   // 获取横轴字段的选项（如果是单选字段）
   // 重要：无论xFieldType是什么，都尝试获取选项。如果字段不是单选，useFieldOptions会返回空数组
@@ -529,20 +566,22 @@ function App() {
   const { options: liveXFieldOptions } = useFieldOptions(
     config.dataSource,
     config.xField,
-    true  // 总是获取选项，让hook内部根据字段类型决定返回什么
+    true,  // 总是获取选项，让hook内部根据字段类型决定返回什么
+    effectiveBase  // 应用插件模式下使用 workspace 的 base
   )
 
   // 获取纵轴字段的选项（如果是单选字段）
   const { options: liveYFieldOptions } = useFieldOptions(
     config.dataSource,
     config.yField,
-    true  // 总是获取选项
+    true,  // 总是获取选项
+    effectiveBase  // 应用插件模式下使用 workspace 的 base
   )
 
   // 根据当前配置获取和处理气泡图数据
   // useData hook 现在会返回 data 和最终用于渲染的 options，以及自动检测出的轴类型
   // 应用插件模式下传入 workspaceBitable.base
-  const { data, loading: dataLoading, finalXOptions, finalYOptions, resolvedXType, resolvedYType } = useData(config, state, liveXFieldOptions, liveYFieldOptions, workspaceBitable?.base)
+  const { data, loading: dataLoading, permissionDenied, finalXOptions, finalYOptions, resolvedXType, resolvedYType } = useData(config, state, liveXFieldOptions, liveYFieldOptions, effectiveBase)
 
   /**
    * useEffect: 组件挂载时加载已保存的配置（初始化）
@@ -632,32 +671,6 @@ function App() {
       offDataChange()
     }
   }, [])
-
-
-  /**
-   * useEffect: 应用插件模式 - 当多维表格切换时，重置配置
-   * 【优化】：不立即清空配置，而是等 tables 加载后一次性更新
-   */
-  const prevBaseTokenRef = useRef<string | undefined>(undefined)
-  const [pendingBaseSwitch, setPendingBaseSwitch] = useState(false)
-
-  useEffect(() => {
-    // 仅在应用插件模式下处理
-    if (!needChangeBase) return
-
-    // 如果是首次加载（prevBaseTokenRef 为空），跳过重置
-    if (prevBaseTokenRef.current === undefined) {
-      prevBaseTokenRef.current = baseToken
-      return
-    }
-
-    // 如果 baseToken 发生变化，标记需要切换
-    if (baseToken && prevBaseTokenRef.current !== baseToken) {
-      console.log('[App] 多维表格切换，等待 tables 加载')
-      prevBaseTokenRef.current = baseToken
-      setPendingBaseSwitch(true)
-    }
-  }, [needChangeBase, baseToken])
 
 
   /**
@@ -951,6 +964,7 @@ function App() {
             theme={theme}
             config={config}
             data={data}
+            permissionDenied={permissionDenied}
             xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
             yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
             sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}
@@ -984,6 +998,7 @@ function App() {
               theme={theme}
               config={config}
               data={data}
+              permissionDenied={permissionDenied}
               xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
               yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
               sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}

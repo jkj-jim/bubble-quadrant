@@ -7,7 +7,6 @@
  */
 
 import { useEffect, useState } from 'react'
-import { bitable } from '@lark-base-open/js-sdk'
 
 export interface ViewInfo {
     id: string
@@ -34,9 +33,13 @@ export const useViews = (tableId?: string, baseInstance?: any) => {
 
             try {
                 setLoading(true)
-                // 使用传入的 baseInstance，如果没有则使用默认的 bitable.base
-                const currentBase = baseInstance || bitable.base
-                const table = await currentBase.getTable(tableId)
+                // 如果 baseInstance 为 null/undefined，清空数据并等待有效实例
+                // 【关键修复】必须清空 views，防止使用旧数据
+                if (!baseInstance) {
+                    setViews([])
+                    return
+                }
+                const table = await baseInstance.getTable(tableId)
                 const viewList = await table.getViewList()
 
                 const viewsData = await Promise.all(viewList.map(async (view: any) => {

@@ -81,6 +81,17 @@ export const useWorkspace = () => {
                     } catch (configError) {
                         // Create 状态下 getConfig 会抛错，这是正常的
                         console.log('[useWorkspace] 无法获取配置（可能是 Create 状态）')
+                        // 从 workspace.getBaseList() 获取第一个多维表格作为默认值
+                        try {
+                            const baseList = await workspace.getBaseList({})
+                            const firstBaseToken = baseList?.base_list?.[0]?.token
+                            if (firstBaseToken) {
+                                setBaseToken(firstBaseToken)
+                                console.log('[useWorkspace] 使用第一个多维表格作为默认:', firstBaseToken)
+                            }
+                        } catch (listError) {
+                            console.error('[useWorkspace] 获取多维表格列表失败:', listError)
+                        }
                     }
                 }
 

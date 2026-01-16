@@ -1,9 +1,5 @@
 import { useEffect, useState } from 'react'
-import { bitable } from '@lark-base-open/js-sdk'
 import type { BubbleChartConfig } from './useDashboard'
-
-// 默认 base 实例（仪表盘插件模式使用）
-const defaultBase = bitable.base
 
 /**
  * DataItem - 数据项接口
@@ -178,6 +174,7 @@ export const useData3 = (
 ) => {
   const [data, setData] = useState<DataItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [permissionDenied, setPermissionDenied] = useState(false)  // 权限错误状态
   const [finalXOptions, setFinalXOptions] = useState<string[] | undefined>()
   const [finalYOptions, setFinalYOptions] = useState<string[] | undefined>()
   const [resolvedXType, setResolvedXType] = useState<'number' | 'category'>('number')
@@ -202,6 +199,7 @@ export const useData3 = (
       if (!dataSource || !xField || !yField) {
         // console.log('[useData3] 配置不完整，清空数据')
         setData([])
+        setPermissionDenied(false)  // 清空权限错误状态
         return
       }
 
@@ -209,9 +207,12 @@ export const useData3 = (
       // console.log('[useData3] 字段类型:', { xFieldType, yFieldType })
 
       try {
-        // 使用传入的 baseInstance，如果没有则使用默认的 base
-        const currentBase = baseInstance || defaultBase
-        const table = await currentBase.getTable(dataSource)
+        // 如果 baseInstance 为 null/undefined，不执行获取（等待有效实例）
+        if (!baseInstance) {
+          setLoading(false)
+          return
+        }
+        const table = await baseInstance.getTable(dataSource)
         // 如果 viewId 存在，则传入 viewId 进行过滤；否则传入空对象获取全部数据
         const recordResult = await table.getRecords({ viewId: viewId || undefined })
 
@@ -324,9 +325,18 @@ export const useData3 = (
 
         // console.log('[useData3] 数据处理完成，记录条数:', processedData.length)
         setData(processedData)
+        setPermissionDenied(false)  // 成功获取数据，清除权限错误状态
       } catch (error) {
         console.error('[useData3] 获取数据失败:', error)
         setData([])
+        // 检测是否是权限错误
+        const errorMessage = String(error)
+        if (errorMessage.includes('permission denied') || errorMessage.includes('Permission denied')) {
+          setPermissionDenied(true)
+          console.warn('[useData3] 检测到权限错误')
+        } else {
+          setPermissionDenied(false)
+        }
       } finally {
         setLoading(false)
       }
@@ -340,7 +350,7 @@ export const useData3 = (
     baseInstance, // 添加 baseInstance 作为依赖
   ]) // 关键：依赖项不包含 state，因此 state 的变化不会直接触发数据重获取
 
-  return { data, loading, finalXOptions, finalYOptions, resolvedXType, resolvedYType }
+  return { data, loading, permissionDenied, finalXOptions, finalYOptions, resolvedXType, resolvedYType }
 }
 
 /**

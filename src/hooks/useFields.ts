@@ -22,7 +22,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { base as defaultBase, FieldType } from '@lark-base-open/js-sdk'
+import { FieldType } from '@lark-base-open/js-sdk'
 import type { FieldInfo } from './useDashboard'
 
 /**
@@ -127,9 +127,20 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
         setLoading(true)
         setError(null)
 
-        // 获取指定工作表（使用传入的 baseInstance，如果没有则使用默认的 base）
-        const currentBase = baseInstance || defaultBase
-        const table = await currentBase.getTableById(tableId)
+        // 如果 baseInstance 为 null/undefined，清空数据并等待有效实例
+        // 【关键修复】必须清空字段，防止使用旧数据
+        if (!baseInstance) {
+          setFields([])
+          setNumericFields([])
+          setTextFields([])
+          setCategoryFields([])
+          setColorGroupFields([])
+          setLoading(true)
+          return
+        }
+
+        // 获取指定工作表
+        const table = await baseInstance.getTableById(tableId)
         // 获取工作表的所有字段元数据
         const fieldMetas = await table.getFieldMetaList()
 
