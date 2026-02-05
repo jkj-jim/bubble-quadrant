@@ -73,6 +73,51 @@ const processCategoryValue = (
 }
 
 /**
+ * extractMultiSelectValues - 提取多选字段的所有选中值
+ *
+ * 功能：将多选字段的值提取为字符串数组
+ *
+ * 处理逻辑：
+ * - 处理多选字段的不同存储格式（数组对象、数组字符串等）
+ * - 返回所有选中值的字符串数组
+ * - 如果值为空或无法提取，返回空数组
+ *
+ * 使用场景：当用户选择多选字段作为横轴或纵轴时，需要将一条记录拆分为多条
+ */
+const extractMultiSelectValues = (value: any): string[] => {
+  if (value === null || value === undefined) {
+    return []
+  }
+
+  // 数组情况（最常见的多选存储格式）
+  if (Array.isArray(value)) {
+    const results: string[] = []
+    for (const item of value) {
+      if (typeof item === 'string' && item) {
+        results.push(item)
+      } else if (typeof item === 'object' && item !== null) {
+        // { id, text } 格式
+        if (item.text !== undefined && item.text !== '') {
+          results.push(item.text)
+        }
+      }
+    }
+    return results
+  }
+
+  // 单值情况（可能是单选字段误传入）
+  if (typeof value === 'string' && value) {
+    return [value]
+  }
+
+  if (typeof value === 'object' && value.text !== undefined && value.text !== '') {
+    return [value.text]
+  }
+
+  return []
+}
+
+/**
  * processNumericValue - 处理数值字段值
  *
  * 功能：将字段值转换为数值，并进行聚合计算（求和）
@@ -223,6 +268,57 @@ export const useData3 = (
           records = recordResult.records
         }
 
+        // ===== 多选字段拆分逻辑 =====
+        // 如果横轴或纵轴是多选字段，将一条记录拆分为多条
+        const { xFieldIsMultiSelect, yFieldIsMultiSelect } = currentConfig
+        if (xFieldIsMultiSelect || yFieldIsMultiSelect) {
+          const expandedRecords: any[] = []
+          for (const record of records) {
+            // 横轴多选：拆分为多条记录，每条记录的 xField 为单个值
+            if (xFieldIsMultiSelect && xField) {
+              const multiValues = extractMultiSelectValues(record.fields[xField])
+              if (multiValues.length === 0) {
+                // 多选值为空，跳过该记录（与单选空值行为一致）
+                continue
+              }
+              for (const val of multiValues) {
+                // 创建新记录，xField 替换为单个值
+                const newRecord = {
+                  ...record,
+                  fields: {
+                    ...record.fields,
+                    [xField]: { text: val }  // 转换为单选格式
+                  }
+                }
+                expandedRecords.push(newRecord)
+              }
+            }
+            // 纵轴多选：拆分为多条记录，每条记录的 yField 为单个值
+            else if (yFieldIsMultiSelect && yField) {
+              const multiValues = extractMultiSelectValues(record.fields[yField])
+              if (multiValues.length === 0) {
+                // 多选值为空，跳过该记录
+                continue
+              }
+              for (const val of multiValues) {
+                const newRecord = {
+                  ...record,
+                  fields: {
+                    ...record.fields,
+                    [yField]: { text: val }
+                  }
+                }
+                expandedRecords.push(newRecord)
+              }
+            }
+            // 都不是多选，保留原记录
+            else {
+              expandedRecords.push(record)
+            }
+          }
+          records = expandedRecords
+        }
+
         // 核心逻辑：在 hook 内部根据 state 决定使用哪个 options
         // view 状态优先用 config 中存的权威数据，config 状态用实时获取的 live 数据
         // view 状态优先用 config 中存的权威数据，config 状态用实时获取的 live 数据
@@ -266,7 +362,69 @@ export const useData3 = (
 
         const processedData: DataItem[] = []
 
-        if (nameField) {
+        // 计数模式：按 x/y 坐标聚合记录，size 表示记录数量
+        if (currentConfig.sizeMode === 'count') {
+          // 使用 Map 按坐标分组计数
+          const coordMap = new Map<string, {
+            count: number,
+            x: number | string,
+            y: number | string,
+            xCategoryIndex?: number,
+            yCategoryIndex?: number
+          }>()
+
+          for (const record of records) {
+            // 处理 x 坐标
+            let xVal: number | string
+            let xCategoryIndex: number | undefined
+            if (effectiveXType === 'category') {
+              const result = processCategoryValue(record.fields[xField], xOptions)
+              xVal = result.original
+              xCategoryIndex = result.index
+            } else {
+              xVal = processNumericValue(record.fields[xField])
+            }
+
+            // 处理 y 坐标
+            let yVal: number | string
+            let yCategoryIndex: number | undefined
+            if (effectiveYType === 'category') {
+              const result = processCategoryValue(record.fields[yField], yOptions)
+              yVal = result.original
+              yCategoryIndex = result.index
+            } else {
+              yVal = processNumericValue(record.fields[yField])
+            }
+
+            // 生成坐标 key（用于分组）
+            const coordKey = `${String(xVal)}||${String(yVal)}`
+
+            if (coordMap.has(coordKey)) {
+              // 已存在该坐标，计数+1
+              coordMap.get(coordKey)!.count++
+            } else {
+              // 新坐标，初始化计数为1
+              coordMap.set(coordKey, {
+                count: 1,
+                x: xVal,
+                y: yVal,
+                xCategoryIndex,
+                yCategoryIndex
+              })
+            }
+          }
+
+          // 将 Map 转换为 DataItem 数组
+          for (const entry of coordMap.values()) {
+            processedData.push({
+              x: entry.x,
+              y: entry.y,
+              size: entry.count,  // size 即为计数
+              xCategoryIndex: entry.xCategoryIndex,
+              yCategoryIndex: entry.yCategoryIndex
+            })
+          }
+        } else if (nameField) {
           // 有气泡名称：
           // 1. 过滤掉没有名称的数据
           // 2. 不分组聚合，直接显示每一条数据

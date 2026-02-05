@@ -1,5 +1,6 @@
 {
     "label": {
+        "count": "计数",
         "clear": "清除",
         "dataSource": "数据源",
         "dataRange": "数据范围",
@@ -19,6 +20,8 @@
         "multidimTable": "多维表格"
     },
     "placeholder": {
+        "selectSizeOption": "选择大小方式",
+        "countModeDisabled": "气泡计数时不可用",
         "selectField": "请选择字段",
         "selectWorksheet": "请选择工作表",
         "allData": "全部数据",

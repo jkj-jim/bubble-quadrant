@@ -55,11 +55,12 @@ const TEXT_FIELD_TYPES = [
 
 /**
  * CATEGORY_FIELD_TYPES - 支持类目轴的字段类型
- * 用途：用于横轴和纵轴的类目轴（单选字段的选项作为类目）
- * 注意：目前只支持单选字段作为类目轴
+ * 用途：用于横轴和纵轴的类目轴（单选/多选字段的选项作为类目）
+ * 注意：多选字段会将一条记录拆分为多条
  */
 const CATEGORY_FIELD_TYPES = [
   FieldType.SingleSelect, // 单选 - 作为类目轴的主要类型
+  FieldType.MultiSelect,  // 多选 - 支持拆分为多条记录
   FieldType.Formula,      // 公式 - 可能返回字符串
 ]
 
@@ -96,6 +97,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
   const [numericFields, setNumericFields] = useState<FieldInfo[]>([])
   const [textFields, setTextFields] = useState<FieldInfo[]>([])
   const [categoryFields, setCategoryFields] = useState<FieldInfo[]>([])
+  const [multiSelectFields, setMultiSelectFields] = useState<FieldInfo[]>([])  // 多选字段（用于互斥判断）
   const [colorGroupFields, setColorGroupFields] = useState<FieldInfo[]>([])  // 支持颜色分组的字段
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -134,6 +136,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
           setNumericFields([])
           setTextFields([])
           setCategoryFields([])
+          setMultiSelectFields([])
           setColorGroupFields([])
           setLoading(true)
           return
@@ -148,6 +151,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
         const numeric: FieldInfo[] = []
         const text: FieldInfo[] = []
         const category: FieldInfo[] = []
+        const multiSelect: FieldInfo[] = []  // 多选字段
         const colorGroup: FieldInfo[] = []  // 支持颜色分组的字段
 
         // 遍历所有字段，按类型分类
@@ -208,6 +212,9 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
           if (CATEGORY_FIELD_TYPES.includes(meta.type)) {
             category.push(fieldInfo) // 类目字段：可用于x/y的类目轴
           }
+          if (meta.type === FieldType.MultiSelect) {
+            multiSelect.push(fieldInfo) // 多选字段：用于互斥判断
+          }
           if (COLOR_GROUP_FIELD_TYPES.includes(meta.type)) {
             colorGroup.push(fieldInfo) // 颜色分组字段：可用于按字段值分组
           }
@@ -218,6 +225,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
         setNumericFields(numeric)
         setTextFields(text)
         setCategoryFields(category)
+        setMultiSelectFields(multiSelect)
         setColorGroupFields(colorGroup)
         setLoadedTableId(tableId)
       } catch (err) {
@@ -233,7 +241,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
 
   /**
    * 返回字段列表、分类字段、加载状态和错误信息
-   * 分类字段包括：数字字段（用于数值计算）、文本字段（用于名称显示）、类目字段（可用于类目轴）
+   * 分类字段包括：数字字段（用于数值计算）、文本字段（用于名称显示）、类目字段（可用于类目轴）、多选字段（用于互斥判断）
    */
-  return { fields, numericFields, textFields, categoryFields, colorGroupFields, loading, error, loadedTableId }
+  return { fields, numericFields, textFields, categoryFields, multiSelectFields, colorGroupFields, loading, error, loadedTableId }
 }

@@ -1,14 +1,14 @@
 /**
- * useFieldOptions.ts - 字段选项hook（用于获取单选字段的可选项）
+ * useFieldOptions.ts - 字段选项hook（用于获取单选/多选字段的可选项）
  *
  * 功能说明：
- * 1. 根据工作表ID和字段ID获取单选字段的所有可选项
+ * 1. 根据工作表ID和字段ID获取单选/多选字段的所有可选项
  * 2. 使用飞书SDK的 field.getOptions() API（按用户设定顺序返回）
  * 3. 提供选项缓存机制，避免重复请求
  * 4. 支持加载状态和错误处理
  *
  * 使用场景：
- * - 当用户选择单选字段作为横轴或纵轴时，需要获取字段的选项列表作为类目轴
+ * - 当用户选择单选/多选字段作为横轴或纵轴时，需要获取字段的选项列表作为类目轴
  * - 类目轴的显示顺序与用户在多维表格中设置的选项顺序一致
  *
  * 接口说明：
@@ -38,7 +38,7 @@ interface OptionsCache {
 /**
  * useFieldOptions - 字段选项hook
  *
- * 功能：根据tableId和fieldId获取单选字段的选项列表
+ * 功能：根据tableId和fieldId获取单选/多选字段的选项列表
  *
  * 参数：
  * - tableId: 工作表ID（可选）
@@ -137,8 +137,8 @@ export const useFieldOptions = (
       // 获取字段元数据，判断是否为单选字段
       const fieldMeta = await field.getMeta()
 
-      // 只处理单选字段，其他字段返回空数组
-      if (fieldMeta.type !== FieldType.SingleSelect) {
+      // 只处理单选和多选字段，其他字段返回空数组
+      if (fieldMeta.type !== FieldType.SingleSelect && fieldMeta.type !== FieldType.MultiSelect) {
         return []
       }
 

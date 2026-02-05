@@ -1,5 +1,6 @@
 {
     "label": {
+        "count": "Count",
         "clear": "Clear",
         "dataSource": "Data Source",
         "dataRange": "Data Range",
@@ -19,6 +20,8 @@
         "multidimTable": "Base"
     },
     "placeholder": {
+        "selectSizeOption": "Select size option",
+        "countModeDisabled": "Not available in count mode",
         "selectField": "Select Field",
         "selectWorksheet": "Select Worksheet",
         "allData": "All Data",

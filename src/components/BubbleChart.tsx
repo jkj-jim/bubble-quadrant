@@ -71,8 +71,8 @@ const CHART_STYLE_CONFIG = {
     splitLine: '--semi-grey-1'  // 浅灰色网格线
   },
   bubble: {
-    minSize: 10,
-    maxSize: 80,
+    minSize: 7,
+    maxSize: 70,
     defaultSize: 8,
     opacity: 0.7,
     borderColor: '--semi-grey-9'
@@ -762,24 +762,30 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           if (yIsPercentage && typeof yDisplay === 'number') {
             yDisplay = parseFloat((yDisplay * 100).toFixed(2)) + '%'
           }
-          if (sizeIsPercentage && typeof sizeDisplay === 'number') {
+          // 计数模式下 size 是整数，不需要百分比格式化
+          if (sizeIsPercentage && typeof sizeDisplay === 'number' && config.sizeMode !== 'count') {
             sizeDisplay = parseFloat((sizeDisplay * 100).toFixed(2)) + '%'
           }
+
+          // 计数模式下，size 显示为"计数: N"
+          const sizeLabel = config.sizeMode === 'count' ? t('label.count') : sizeFieldName
 
           return `
             <div style="padding: 8px;">
               ${data.name ? `<div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>` : ''}
               <div>${xFieldName || 'X'}: ${xDisplay}</div>
               <div>${yFieldName || 'Y'}: ${yDisplay}</div>
-              ${sizeFieldName ? `<div>${sizeFieldName}: ${sizeDisplay}</div>` : ''}
+              ${sizeLabel ? `<div>${sizeLabel}: ${sizeDisplay}</div>` : ''}
             </div>
           `
         }
       },
       series: (() => {
         // 公共的 series 配置
+        // 计数模式或有 sizeFieldName 时，根据 size 值动态计算气泡大小
+        const shouldUseDynamicSize = config.sizeMode === 'count' || !!sizeFieldName
         const symbolSizeFn = (val: any) => {
-          if (!sizeFieldName) {
+          if (!shouldUseDynamicSize) {
             return chartStyles.bubble.defaultSize
           }
           const sizeVal = val[2] as number

@@ -1,5 +1,6 @@
 {
     "label": {
+        "count": "カウント",
         "clear": "クリア",
         "dataSource": "データソース",
         "dataRange": "データ範囲",
@@ -12,6 +13,8 @@
         "multidimTable": "多次元テーブル"
     },
     "placeholder": {
+        "selectSizeOption": "サイズオプションを選択",
+        "countModeDisabled": "カウントモードでは使用不可",
         "selectField": "フィールドを選択",
         "selectWorksheet": "ワークシートを選択",
         "allData": "すべてのデータ",

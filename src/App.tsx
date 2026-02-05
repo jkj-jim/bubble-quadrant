@@ -70,20 +70,21 @@ const FieldSelect: React.FC<{
   placeholder?: string
   showClear?: boolean
   tooltip?: string
-}> = ({ label, value, onChange, fields, loading, placeholder, showClear = false, tooltip }) => {
+  disabled?: boolean  // 是否禁用选择器
+}> = ({ label, value, onChange, fields, loading, placeholder, showClear = false, tooltip, disabled = false }) => {
   const { t } = useTranslation()
   return (
     <div style={{ marginBottom: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Text strong>{label}</Text>
+          <Text strong style={disabled ? { color: 'var(--semi-color-text-2)' } : {}}>{label}</Text>
           {tooltip && (
             <Tooltip content={tooltip}>
               <IconIssueStroked style={{ color: 'var(--semi-color-text-2)', marginLeft: 4, fontSize: 14, cursor: 'pointer' }} />
             </Tooltip>
           )}
         </div>
-        {showClear && value && (
+        {showClear && value && !disabled && (
           <span
             style={{ cursor: 'pointer', fontSize: '12px', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
             onClick={() => onChange(undefined)}
@@ -101,6 +102,7 @@ const FieldSelect: React.FC<{
         style={{ width: '100%' }}
         loading={loading}
         filter
+        disabled={disabled}
       >
         {fields.map(field => (
           <Select.Option key={field.id} value={field.id}>
@@ -554,7 +556,7 @@ function App() {
 
   // 根据选中的数据源表，获取数字字段、文本字段、类目字段和颜色分组字段列表
   // 应用插件模式下传入 workspaceBitable.base
-  const { fields, numericFields, textFields, categoryFields, colorGroupFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource, effectiveBase)
+  const { fields, numericFields, textFields, categoryFields, multiSelectFields, colorGroupFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource, effectiveBase)
 
   // 获取数据源下的所有视图列表
   // 应用插件模式下传入 workspaceBitable.base
@@ -824,7 +826,7 @@ function App() {
       }
 
 
-      // 当横轴字段变化时，检测字段类型
+      // 当横轴字段变化时，检测字段类型和是否为多选
       if (key === 'xField' && typeof finalValue === 'string') {
         const field = fields.find(f => f.id === finalValue)
         if (field) {
@@ -835,10 +837,19 @@ function App() {
             // 否则根据是否为类目字段决定
             newConfig.xFieldType = field.isCategory ? 'category' : 'number'
           }
+          // 检测是否为多选字段
+          const isMultiSelect = multiSelectFields.some(f => f.id === finalValue)
+          newConfig.xFieldIsMultiSelect = isMultiSelect
+          // 互斥逻辑：如果横轴选了多选，且纵轴也是多选，则清空纵轴
+          if (isMultiSelect && newConfig.yFieldIsMultiSelect) {
+            newConfig.yField = undefined
+            newConfig.yFieldIsMultiSelect = undefined
+            delete newConfig.yFieldType
+          }
         }
       }
 
-      // 当纵轴字段变化时，检测字段类型
+      // 当纵轴字段变化时，检测字段类型和是否为多选
       if (key === 'yField' && typeof finalValue === 'string') {
         const field = fields.find(f => f.id === finalValue)
         if (field) {
@@ -847,6 +858,15 @@ function App() {
             delete newConfig.yFieldType
           } else {
             newConfig.yFieldType = field.isCategory ? 'category' : 'number'
+          }
+          // 检测是否为多选字段
+          const isMultiSelect = multiSelectFields.some(f => f.id === finalValue)
+          newConfig.yFieldIsMultiSelect = isMultiSelect
+          // 互斥逻辑：如果纵轴选了多选，且横轴也是多选，则清空横轴
+          if (isMultiSelect && newConfig.xFieldIsMultiSelect) {
+            newConfig.xField = undefined
+            newConfig.xFieldIsMultiSelect = undefined
+            delete newConfig.xFieldType
           }
         }
       }
@@ -922,16 +942,25 @@ function App() {
     // console.log('[App] 渲染图表，state:', state, 'data.length:', data?.length)
 
     // 辅助函数：合并数字字段和类目字段，并标注字段类型
-    const getCombinedFieldsWithType = () => {
+    // excludeMultiSelect: 当另一轴已选多选字段时，过滤掉多选字段实现互斥
+    const getCombinedFieldsWithType = (excludeMultiSelect: boolean = false) => {
       // 使用 Map 去重
       const fieldMap = new Map()
 
       // 添加数字字段
       numericFields.forEach(f => fieldMap.set(f.id, f))
-      // 添加类目字段
+      // 添加类目字段（包含多选）
       categoryFields.forEach(f => fieldMap.set(f.id, f))
 
-      return Array.from(fieldMap.values()).map(field => {
+      // 如果需要排除多选字段（互斥逻辑）
+      let fieldsArray = Array.from(fieldMap.values())
+      if (excludeMultiSelect) {
+        fieldsArray = fieldsArray.filter(field =>
+          !multiSelectFields.some(msf => msf.id === field.id)
+        )
+      }
+
+      return fieldsArray.map(field => {
         const isCategory = categoryFields.some(f => f.id === field.id)
         const isNumeric = numericFields.some(f => f.id === field.id)
 
@@ -1100,49 +1129,80 @@ function App() {
                 {/* 字段选择器：仅在选中数据源后显示 */}
                 {config.dataSource && (
                   <>
-                    {/* 横轴：必选，支持数字字段和单选字段（类目） */}
+                    {/* 横轴：必选，支持数字字段和单选/多选字段（类目）
+                        当纵轴已选多选字段时，过滤掉多选字段（互斥） */}
                     <FieldSelect
                       label={t('label.xAxis')}
                       value={config.xField}
                       onChange={(value) => handleConfigChange('xField', value)}
-                      fields={getCombinedFieldsWithType()}
+                      fields={getCombinedFieldsWithType(config.yFieldIsMultiSelect === true)}
                       loading={fieldsLoading}
                       placeholder={t('placeholder.selectField')}
                     />
 
 
-                    {/* 纵轴：必选，支持数字字段和单选字段（类目） */}
+                    {/* 纵轴：必选，支持数字字段和单选/多选字段（类目）
+                        当横轴已选多选字段时，过滤掉多选字段（互斥） */}
                     <FieldSelect
                       label={t('label.yAxis')}
                       value={config.yField}
                       onChange={(value) => handleConfigChange('yField', value)}
-                      fields={getCombinedFieldsWithType()}
+                      fields={getCombinedFieldsWithType(config.xFieldIsMultiSelect === true)}
                       loading={fieldsLoading}
                       placeholder={t('placeholder.selectField')}
                     />
 
 
-                    {/* 气泡大小：可选，仅支持数值类型（包括数值公式） */}
-                    <FieldSelect
-                      label={t('label.bubbleSize')}
-                      value={config.sizeField}
-                      onChange={(value) => handleConfigChange('sizeField', value)}
-                      fields={numericFields.filter(f => f.type !== 3 || f.isNumericFormula)} // 3 is FieldType.Formula. Using literal or import if available. Better to use property check.
-                      loading={fieldsLoading}
-                      placeholder={t('placeholder.selectNumericField')}
-                      showClear={true}
-                    />
+                    {/* 气泡大小：计数选项（默认） + 数值字段选项 */}
+                    <div style={{ marginBottom: '20px' }}>
+                      <Text strong style={{ display: 'block', marginBottom: 8 }}>{t('label.bubbleSize')}</Text>
+                      <Select
+                        value={config.sizeMode === 'count' ? '__count__' : config.sizeField}
+                        onChange={(value) => {
+                          if (value === '__count__') {
+                            // 选择计数模式
+                            handleConfigChange('sizeMode', 'count')
+                            handleConfigChange('sizeField', undefined)
+                            // 联动清空：气泡名称和颜色分组
+                            handleConfigChange('nameField', undefined)
+                            handleConfigChange('colorGroupType', undefined)
+                            handleConfigChange('colorGroupField', undefined)
+                          } else {
+                            // 选择字段模式
+                            handleConfigChange('sizeMode', 'field')
+                            handleConfigChange('sizeField', value)
+                          }
+                        }}
+                        placeholder={t('placeholder.selectSizeOption')}
+                        style={{ width: '100%' }}
+                        loading={fieldsLoading}
+                        filter
+                        showClear
+                        onClear={() => {
+                          handleConfigChange('sizeMode', undefined)
+                          handleConfigChange('sizeField', undefined)
+                        }}
+                      >
+                        {/* 计数选项 - 放在最前面 */}
+                        <Select.Option value="__count__">{t('label.count')}</Select.Option>
+                        {/* 数值字段选项 */}
+                        {numericFields.filter(f => f.type !== 3 || f.isNumericFormula).map(field => (
+                          <Select.Option key={field.id} value={field.id}>{field.name}</Select.Option>
+                        ))}
+                      </Select>
+                    </div>
 
-                    {/* 气泡名称：选填，必须为文本字段 */}
+                    {/* 气泡名称：选填，必须为文本字段，计数模式下禁用 */}
                     <FieldSelect
                       label={t('label.bubbleName')}
-                      value={config.nameField}
+                      value={config.sizeMode === 'count' ? undefined : config.nameField}
                       onChange={(value) => handleConfigChange('nameField', value)}
                       fields={textFields}
                       loading={fieldsLoading}
-                      placeholder={t('placeholder.selectTextField')}
+                      placeholder={config.sizeMode === 'count' ? t('placeholder.countModeDisabled') : t('placeholder.selectTextField')}
                       showClear={true}
-                      tooltip={t('tooltip.bubbleName')}
+                      tooltip={config.sizeMode === 'count' ? undefined : t('tooltip.bubbleName')}
+                      disabled={config.sizeMode === 'count'}
                     />
 
                     {/* 多彩模式和名称常显复选框 */}
@@ -1198,9 +1258,9 @@ function App() {
                     <div style={{ marginBottom: '20px' }}>
                       {/* 标题行：包含标签和清除按钮 */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <Text strong>{t('label.colorGroup')}</Text>
-                        {/* 已选择时显示清除按钮 */}
-                        {(config.colorGroupType) && (
+                        <Text strong style={config.sizeMode === 'count' ? { color: 'var(--semi-color-text-2)' } : {}}>{t('label.colorGroup')}</Text>
+                        {/* 已选择时显示清除按钮（计数模式下不显示） */}
+                        {(config.colorGroupType) && config.sizeMode !== 'count' && (
                           <span
                             style={{ cursor: 'pointer', fontSize: '12px', userSelect: 'none', color: 'var(--semi-color-text-1)' }}
                             onClick={() => {
@@ -1215,7 +1275,7 @@ function App() {
                         )}
                       </div>
                       <Select
-                        value={config.colorGroupType === 'quadrant' ? '__quadrant__' : config.colorGroupField}
+                        value={config.sizeMode === 'count' ? undefined : (config.colorGroupType === 'quadrant' ? '__quadrant__' : config.colorGroupField)}
                         onChange={(value) => {
                           if (value === '__quadrant__') {
                             handleConfigChange('colorGroupType', 'quadrant')
@@ -1228,9 +1288,10 @@ function App() {
                             handleConfigChange('colorGroupField', undefined)
                           }
                         }}
-                        placeholder={t('placeholder.selectColorGroup')}
+                        placeholder={config.sizeMode === 'count' ? t('placeholder.countModeDisabled') : t('placeholder.selectColorGroup')}
                         style={{ width: '100%' }}
                         filter
+                        disabled={config.sizeMode === 'count'}
                       >
                         {/* 如果配置了象限（有分割线），显示象限选项 */}
                         {(config.xThreshold || config.yThreshold) && (

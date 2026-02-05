@@ -45,8 +45,11 @@ export interface BubbleChartConfig {
   xField?: string          // 横轴字段ID
   yField?: string          // 纵轴字段ID
   sizeField?: string       // 气泡大小字段ID
+  sizeMode?: 'count' | 'field'  // 气泡大小模式：计数（按坐标聚合）或字段
   xFieldType?: 'number' | 'category'  // 横轴字段类型（数值/类目）
   yFieldType?: 'number' | 'category'  // 纵轴字段类型（数值/类目）
+  xFieldIsMultiSelect?: boolean       // 横轴是否为多选字段
+  yFieldIsMultiSelect?: boolean       // 纵轴是否为多选字段
   xFieldOptions?: string[]  // 横轴字段选项列表（类目轴时使用）
   yFieldOptions?: string[]  // 纵轴字段选项列表（类目轴时使用）
   viewId?: string           // 数据范围视图ID，undefined 表示全部数据
