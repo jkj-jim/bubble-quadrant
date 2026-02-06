@@ -589,6 +589,25 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       otherAxisIsCategory: xAxisType === 'category'  // X轴是类目轴时，Y轴显示在边缘
     }) as any
 
+    // ===== 轴范围限制：仅数值轴生效 =====
+    // 如果配置了轴范围限制且是数值轴，应用 min/max 到轴配置
+    if (xAxisType === 'value' && config.xAxisRangeEnabled) {
+      if (config.xAxisMin !== undefined && config.xAxisMin !== '') {
+        xAxis.min = parseFloat(config.xAxisMin)
+      }
+      if (config.xAxisMax !== undefined && config.xAxisMax !== '') {
+        xAxis.max = parseFloat(config.xAxisMax)
+      }
+    }
+    if (yAxisType === 'value' && config.yAxisRangeEnabled) {
+      if (config.yAxisMin !== undefined && config.yAxisMin !== '') {
+        yAxis.min = parseFloat(config.yAxisMin)
+      }
+      if (config.yAxisMax !== undefined && config.yAxisMax !== '') {
+        yAxis.max = parseFloat(config.yAxisMax)
+      }
+    }
+
     /**
      * 处理图表数据，根据轴类型选择不同的值
      * 数值轴：直接使用数值（如果是字符串则尝试转换）

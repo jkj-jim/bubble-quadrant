@@ -17,7 +17,9 @@
         "quadrantName": "Region Name",
         "backgroundColor": "Background Color",
         "colorGroup": "Color Group",
-        "multidimTable": "Base"
+        "multidimTable": "Base",
+        "xAxisRange": "X Axis Range",
+        "yAxisRange": "Y Axis Range"
     },
     "placeholder": {
         "selectSizeOption": "Select size option",
@@ -39,6 +41,8 @@
         "quadrantBR": "Bottom-Right Name",
         "selectColorGroup": "Select Grouping",
         "selectBase": "Select Base",
+        "axisMin": "Min",
+        "axisMax": "Max",
         "regionLeft": "Left Region",
         "regionMiddleH": "Middle Region",
         "regionRight": "Right Region",
@@ -71,7 +75,9 @@
         "fillMedian": "Fill Median",
         "fillPrefix": "Fill",
         "selectMiddle": "Select Middle",
-        "addSplitLine": "Add Split"
+        "addSplitLine": "Add Split",
+        "enableAxisRange": "Limit Range",
+        "disableAxisRange": "Cancel Range"
     },
     "chart": {
         "loading": "Loading...",

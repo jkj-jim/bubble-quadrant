@@ -17,7 +17,9 @@
         "quadrantName": "象限名称",
         "backgroundColor": "背景色",
         "colorGroup": "气泡分组",
-        "multidimTable": "多维表格"
+        "multidimTable": "多维表格",
+        "xAxisRange": "横轴范围",
+        "yAxisRange": "纵轴范围"
     },
     "placeholder": {
         "selectSizeOption": "选择大小方式",
@@ -39,6 +41,8 @@
         "quadrantBR": "右下象限名称",
         "selectColorGroup": "选择分组方式",
         "selectBase": "请选择多维表格",
+        "axisMin": "最小刻度",
+        "axisMax": "最大刻度",
         "regionLeft": "左象限名称",
         "regionMiddleH": "中象限名称",
         "regionRight": "右象限名称",
@@ -72,7 +76,9 @@
         "fillMedian": "填入中位数",
         "fillPrefix": "填入",
         "selectMiddle": "选择中间项",
-        "addSplitLine": "添加分割线"
+        "addSplitLine": "添加分割线",
+        "enableAxisRange": "限定轴范围",
+        "disableAxisRange": "取消轴范围"
     },
     "chart": {
         "loading": "数据加载中...",

@@ -56,6 +56,14 @@ export interface BubbleChartConfig {
   enableMultiColor?: boolean // 是否开启多彩模式
   showLabel?: boolean        // 是否常显名称标签
 
+  // ===== 轴范围限制配置（仅数值轴生效）=====
+  xAxisRangeEnabled?: boolean  // 是否启用横轴范围限制
+  xAxisMin?: string            // 横轴最小值
+  xAxisMax?: string            // 横轴最大值
+  yAxisRangeEnabled?: boolean  // 是否启用纵轴范围限制
+  yAxisMin?: string            // 纵轴最小值
+  yAxisMax?: string            // 纵轴最大值
+
   // ===== 新版分割线配置（支持每轴最多2条分割线）=====
   xThresholds?: string[]     // X轴分割线值数组（0-2条）
   yThresholds?: string[]     // Y轴分割线值数组（0-2条）

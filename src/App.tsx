@@ -1130,32 +1130,141 @@ function App() {
                 {config.dataSource && (
                   <>
                     {/* 横轴：必选，支持数字字段和单选/多选字段（类目）
-                        当纵轴已选多选字段时，过滤掉多选字段（互斥） */}
-                    <FieldSelect
-                      label={t('label.xAxis')}
-                      value={config.xField}
-                      onChange={(value) => handleConfigChange('xField', value)}
-                      fields={getCombinedFieldsWithType(config.yFieldIsMultiSelect === true)}
-                      loading={fieldsLoading}
-                      placeholder={t('placeholder.selectField')}
-                    />
+                        当纵轴已选多选字段时，过滤掉多选字段（互斥）
+                        数值轴时右上角显示"限定轴范围"按钮 */}
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text strong>{t('label.xAxis')}</Text>
+                        {/* 数值轴时显示"限定轴范围"按钮 */}
+                        {resolvedXType === 'number' && (
+                          <span
+                            style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--semi-color-text-1)', fontSize: '12px' }}
+                            onClick={() => {
+                              if (config.xAxisRangeEnabled) {
+                                handleConfigChange('xAxisRangeEnabled', false)
+                                handleConfigChange('xAxisMin', undefined)
+                                handleConfigChange('xAxisMax', undefined)
+                              } else {
+                                handleConfigChange('xAxisRangeEnabled', true)
+                              }
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
+                          >
+                            {config.xAxisRangeEnabled ? t('button.disableAxisRange') : t('button.enableAxisRange')}
+                          </span>
+                        )}
+                      </div>
+                      <Select
+                        value={config.xField}
+                        onChange={(value) => handleConfigChange('xField', value as string)}
+                        placeholder={t('placeholder.selectField')}
+                        style={{ width: '100%' }}
+                        loading={fieldsLoading}
+                      >
+                        {getCombinedFieldsWithType(config.yFieldIsMultiSelect === true).map(field => (
+                          <Select.Option key={field.id} value={field.id}>
+                            {field.typeLabel}
+                          </Select.Option>
+                        ))}
+                      </Select>
+                      {/* 横轴范围输入框：仅在数值轴且启用时显示 */}
+                      {resolvedXType === 'number' && config.xAxisRangeEnabled && (
+                        <div style={{ display: 'flex', gap: '8px', marginTop: 8 }}>
+                          <Input
+                            placeholder={t('placeholder.axisMin')}
+                            value={config.xAxisMin || ''}
+                            onChange={(value) => handleConfigChange('xAxisMin', value || undefined)}
+                            style={{ flex: 1 }}
+                          />
+                          <Input
+                            placeholder={t('placeholder.axisMax')}
+                            value={config.xAxisMax || ''}
+                            onChange={(value) => handleConfigChange('xAxisMax', value || undefined)}
+                            style={{ flex: 1 }}
+                          />
+                        </div>
+                      )}
+                    </div>
 
 
                     {/* 纵轴：必选，支持数字字段和单选/多选字段（类目）
-                        当横轴已选多选字段时，过滤掉多选字段（互斥） */}
-                    <FieldSelect
-                      label={t('label.yAxis')}
-                      value={config.yField}
-                      onChange={(value) => handleConfigChange('yField', value)}
-                      fields={getCombinedFieldsWithType(config.xFieldIsMultiSelect === true)}
-                      loading={fieldsLoading}
-                      placeholder={t('placeholder.selectField')}
-                    />
-
+                        当横轴已选多选字段时，过滤掉多选字段（互斥）
+                        数值轴时右上角显示"限定轴范围"按钮 */}
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text strong>{t('label.yAxis')}</Text>
+                        {/* 数值轴时显示"限定轴范围"按钮 */}
+                        {resolvedYType === 'number' && (
+                          <span
+                            style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--semi-color-text-1)', fontSize: '12px' }}
+                            onClick={() => {
+                              if (config.yAxisRangeEnabled) {
+                                handleConfigChange('yAxisRangeEnabled', false)
+                                handleConfigChange('yAxisMin', undefined)
+                                handleConfigChange('yAxisMax', undefined)
+                              } else {
+                                handleConfigChange('yAxisRangeEnabled', true)
+                              }
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
+                          >
+                            {config.yAxisRangeEnabled ? t('button.disableAxisRange') : t('button.enableAxisRange')}
+                          </span>
+                        )}
+                      </div>
+                      <Select
+                        value={config.yField}
+                        onChange={(value) => handleConfigChange('yField', value as string)}
+                        placeholder={t('placeholder.selectField')}
+                        style={{ width: '100%' }}
+                        loading={fieldsLoading}
+                      >
+                        {getCombinedFieldsWithType(config.xFieldIsMultiSelect === true).map(field => (
+                          <Select.Option key={field.id} value={field.id}>
+                            {field.typeLabel}
+                          </Select.Option>
+                        ))}
+                      </Select>
+                      {/* 纵轴范围输入框：仅在数值轴且启用时显示 */}
+                      {resolvedYType === 'number' && config.yAxisRangeEnabled && (
+                        <div style={{ display: 'flex', gap: '8px', marginTop: 8 }}>
+                          <Input
+                            placeholder={t('placeholder.axisMin')}
+                            value={config.yAxisMin || ''}
+                            onChange={(value) => handleConfigChange('yAxisMin', value || undefined)}
+                            style={{ flex: 1 }}
+                          />
+                          <Input
+                            placeholder={t('placeholder.axisMax')}
+                            value={config.yAxisMax || ''}
+                            onChange={(value) => handleConfigChange('yAxisMax', value || undefined)}
+                            style={{ flex: 1 }}
+                          />
+                        </div>
+                      )}
+                    </div>
 
                     {/* 气泡大小：计数选项（默认） + 数值字段选项 */}
                     <div style={{ marginBottom: '20px' }}>
-                      <Text strong style={{ display: 'block', marginBottom: 8 }}>{t('label.bubbleSize')}</Text>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text strong>{t('label.bubbleSize')}</Text>
+                        {/* 当有选择时显示清除按钮 */}
+                        {(config.sizeMode || config.sizeField) && (
+                          <span
+                            style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--semi-color-text-1)', fontSize: '12px' }}
+                            onClick={() => {
+                              handleConfigChange('sizeMode', undefined)
+                              handleConfigChange('sizeField', undefined)
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
+                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-1)'}
+                          >
+                            {t('label.clear')}
+                          </span>
+                        )}
+                      </div>
                       <Select
                         value={config.sizeMode === 'count' ? '__count__' : config.sizeField}
                         onChange={(value) => {
@@ -1177,11 +1286,6 @@ function App() {
                         style={{ width: '100%' }}
                         loading={fieldsLoading}
                         filter
-                        showClear
-                        onClear={() => {
-                          handleConfigChange('sizeMode', undefined)
-                          handleConfigChange('sizeField', undefined)
-                        }}
                       >
                         {/* 计数选项 - 放在最前面 */}
                         <Select.Option value="__count__">{t('label.count')}</Select.Option>

@@ -10,7 +10,9 @@
         "bubbleName": "バブル名",
         "multiColor": "カラフル",
         "showLabel": "ラベルを表示",
-        "multidimTable": "多次元テーブル"
+        "multidimTable": "多次元テーブル",
+        "xAxisRange": "X軸範囲",
+        "yAxisRange": "Y軸範囲"
     },
     "placeholder": {
         "selectSizeOption": "サイズオプションを選択",
@@ -20,7 +22,9 @@
         "allData": "すべてのデータ",
         "selectNumericField": "数値フィールドを選択",
         "selectTextField": "テキストフィールドを選択",
-        "selectBase": "多次元テーブルを選択"
+        "selectBase": "多次元テーブルを選択",
+        "axisMin": "最小値",
+        "axisMax": "最大値"
     },
     "tooltip": {
         "bubbleName": "空の場合、すべてのデータが表示されます。設定されている場合、このフィールドが空でないデータのみが表示されます",
@@ -32,7 +36,9 @@
         "noMatch": "一致する結果がありません"
     },
     "button": {
-        "saveAndView": "保存して表示"
+        "saveAndView": "保存して表示",
+        "enableAxisRange": "範囲を限定",
+        "disableAxisRange": "範囲を解除"
     },
     "chart": {
         "loading": "読み込み中...",
