@@ -68,6 +68,9 @@
         "noData": "No data",
         "noMatch": "No matching results"
     },
+    "hint": {
+        "dateAxisNoSplit": "Date axis does not support split lines"
+    },
     "button": {
         "saveAndView": "Save & View",
         "median": "Median",

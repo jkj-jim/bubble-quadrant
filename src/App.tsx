@@ -27,7 +27,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button, Typography, Select, Tooltip, Checkbox, Tabs, TabPane, Input } from '@douyinfe/semi-ui'
+import { Button, Typography, Select, Tooltip, Checkbox, Tabs, TabPane, Input, DatePicker } from '@douyinfe/semi-ui'
 import { IconIssueStroked } from '@douyinfe/semi-icons'
 import { bitable, dashboard, Rollup, type ISeries } from '@lark-base-open/js-sdk'
 import { useDashboard, useTables, useFields, type BubbleChartConfig } from './hooks/useDashboard'
@@ -195,8 +195,8 @@ const ColorPicker = ({
  */
 interface QuadrantConfigPanelProps {
   config: BubbleChartConfig
-  resolvedXType: 'number' | 'category'
-  resolvedYType: 'number' | 'category'
+  resolvedXType: 'number' | 'category' | 'date'
+  resolvedYType: 'number' | 'category' | 'date'
   finalXOptions: string[] | undefined
   finalYOptions: string[] | undefined
   data: any[]
@@ -285,15 +285,29 @@ const QuadrantConfigPanel: React.FC<QuadrantConfigPanelProps> = ({
   }
 
   // 渲染单条分割线配置
+  // 日期轴不支持分割线配置
   const renderSplitLineConfig = (
     axis: 'x' | 'y',
     index: number,
     label: string,
     value: string | undefined,
-    axisType: 'number' | 'category',
+    axisType: 'number' | 'category' | 'date',
     options: string[] | undefined,
     dataKey: 'x' | 'y'
   ) => {
+    // 日期轴不支持分割线：返回禁用提示
+    if (axisType === 'date') {
+      if (index > 0) return null  // 第二条分割线直接隐藏
+      return (
+        <div style={{ marginBottom: '12px' }} key={`${axis}-${index}`}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text strong style={{ color: 'var(--semi-color-text-2)' }}>{label}</Text>
+          </div>
+          <Text type="tertiary" style={{ fontSize: '12px' }}>{t('hint.dateAxisNoSplit')}</Text>
+        </div>
+      )
+    }
+
     const thresholds = getEffectiveThresholds(axis)
     const hasValue = !!value
     const canAddSecond = index === 0 && hasValue && thresholds.length < 2
@@ -554,9 +568,9 @@ function App() {
   // 当前配置状态（数据源、字段选择等）
   const [config, setConfig] = useState<BubbleChartConfig>({})
 
-  // 根据选中的数据源表，获取数字字段、文本字段、类目字段和颜色分组字段列表
+  // 根据选中的数据源表，获取数字字段、文本字段、类目字段、日期字段和颜色分组字段列表
   // 应用插件模式下传入 workspaceBitable.base
-  const { fields, numericFields, textFields, categoryFields, multiSelectFields, colorGroupFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource, effectiveBase)
+  const { fields, numericFields, textFields, categoryFields, multiSelectFields, colorGroupFields, dateFields, loading: fieldsLoading, loadedTableId } = useFields(config.dataSource, effectiveBase)
 
   // 获取数据源下的所有视图列表
   // 应用插件模式下传入 workspaceBitable.base
@@ -710,11 +724,12 @@ function App() {
   useEffect(() => {
     if (!config.dataSource) return
 
-    // 辅助函数：合并数字字段和类目字段
+    // 辅助函数：合并数字字段、类目字段和日期字段（用于轴选择）
     const getCombinedFields = () => {
       const fieldMap = new Map()
       numericFields.forEach(f => fieldMap.set(f.id, f))
       categoryFields.forEach(f => fieldMap.set(f.id, f))
+      dateFields.forEach(f => fieldMap.set(f.id, f))  // 添加日期字段
       return Array.from(fieldMap.values())
     }
 
@@ -739,7 +754,13 @@ function App() {
             const field = fields.find(f => f.id === combinedFields[0].id)
             if (field) {
               if (!field.isFormula) {
-                updates.xFieldType = field.isCategory ? 'category' : 'number'
+                // 检测日期类型
+                if (field.isDate) {
+                  updates.xFieldType = 'date'
+                  updates.xFieldHasTime = field.hasTime ?? false
+                } else {
+                  updates.xFieldType = field.isCategory ? 'category' : 'number'
+                }
               }
             }
           } else {
@@ -759,7 +780,13 @@ function App() {
             const field = fields.find(f => f.id === combinedFields[1].id)
             if (field) {
               if (!field.isFormula) {
-                updates.yFieldType = field.isCategory ? 'category' : 'number'
+                // 检测日期类型
+                if (field.isDate) {
+                  updates.yFieldType = 'date'
+                  updates.yFieldHasTime = field.hasTime ?? false
+                } else {
+                  updates.yFieldType = field.isCategory ? 'category' : 'number'
+                }
               }
             }
           } else {
@@ -778,7 +805,7 @@ function App() {
         return prev
       })
     }
-  }, [config.dataSource, fieldsLoading, numericFields, categoryFields, fields, config.xField, config.yField, loadedTableId])
+  }, [config.dataSource, fieldsLoading, numericFields, categoryFields, dateFields, fields, config.xField, config.yField, loadedTableId])
 
 
   /**
@@ -833,9 +860,24 @@ function App() {
           // 如果是公式字段，不设置 xFieldType，让 useData 自动检测
           if (field.isFormula) {
             delete newConfig.xFieldType
+          } else if (field.isDate) {
+            // 日期字段
+            newConfig.xFieldType = 'date'
+            newConfig.xFieldHasTime = field.hasTime ?? false
+            // 日期轴不支持象限分割，清空横轴分割线
+            newConfig.xThresholds = undefined
+            newConfig.xThreshold = undefined
+            // 重置象限配置
+            newConfig.regions = undefined
           } else {
             // 否则根据是否为类目字段决定
             newConfig.xFieldType = field.isCategory ? 'category' : 'number'
+            // 类目轴也不支持象限分割
+            if (field.isCategory) {
+              newConfig.xThresholds = undefined
+              newConfig.xThreshold = undefined
+              newConfig.regions = undefined
+            }
           }
           // 检测是否为多选字段
           const isMultiSelect = multiSelectFields.some(f => f.id === finalValue)
@@ -856,8 +898,23 @@ function App() {
           // 如果是公式字段，不设置 yFieldType，让 useData 自动检测
           if (field.isFormula) {
             delete newConfig.yFieldType
+          } else if (field.isDate) {
+            // 日期字段
+            newConfig.yFieldType = 'date'
+            newConfig.yFieldHasTime = field.hasTime ?? false
+            // 日期轴不支持象限分割，清空纵轴分割线
+            newConfig.yThresholds = undefined
+            newConfig.yThreshold = undefined
+            // 重置象限配置
+            newConfig.regions = undefined
           } else {
             newConfig.yFieldType = field.isCategory ? 'category' : 'number'
+            // 类目轴也不支持象限分割
+            if (field.isCategory) {
+              newConfig.yThresholds = undefined
+              newConfig.yThreshold = undefined
+              newConfig.regions = undefined
+            }
           }
           // 检测是否为多选字段
           const isMultiSelect = multiSelectFields.some(f => f.id === finalValue)
@@ -941,7 +998,7 @@ function App() {
   const renderContent = () => {
     // console.log('[App] 渲染图表，state:', state, 'data.length:', data?.length)
 
-    // 辅助函数：合并数字字段和类目字段，并标注字段类型
+    // 辅助函数：合并数字字段、类目字段和日期字段，并标注字段类型
     // excludeMultiSelect: 当另一轴已选多选字段时，过滤掉多选字段实现互斥
     const getCombinedFieldsWithType = (excludeMultiSelect: boolean = false) => {
       // 使用 Map 去重
@@ -951,6 +1008,8 @@ function App() {
       numericFields.forEach(f => fieldMap.set(f.id, f))
       // 添加类目字段（包含多选）
       categoryFields.forEach(f => fieldMap.set(f.id, f))
+      // 添加日期字段
+      dateFields.forEach(f => fieldMap.set(f.id, f))
 
       // 如果需要排除多选字段（互斥逻辑）
       let fieldsArray = Array.from(fieldMap.values())
@@ -963,10 +1022,13 @@ function App() {
       return fieldsArray.map(field => {
         const isCategory = categoryFields.some(f => f.id === field.id)
         const isNumeric = numericFields.some(f => f.id === field.id)
+        const isDate = dateFields.some(f => f.id === field.id)
 
         let typeLabel = ''
         if (field.isFormula) {
           typeLabel = `${field.name}`
+        } else if (isDate) {
+          typeLabel = `${field.name}`  // 日期字段
         } else if (isCategory && isNumeric) {
           typeLabel = `${field.name}`
         } else if (isCategory) {
@@ -994,20 +1056,22 @@ function App() {
             config={config}
             data={data}
             permissionDenied={permissionDenied}
-            xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
-            yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
+            xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name || dateFields.find(f => f.id === config.xField)?.name : undefined}
+            yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name || dateFields.find(f => f.id === config.yField)?.name : undefined}
             sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}
             nameFieldName={config.nameField ? textFields.find(f => f.id === config.nameField)?.name : undefined}
             showLabel={config.showLabel}
             loading={dataLoading}
-            xAxisType={resolvedXType === 'number' ? 'value' : 'category'}
-            yAxisType={resolvedYType === 'number' ? 'value' : 'category'}
+            xAxisType={resolvedXType === 'date' ? 'date' : (resolvedXType === 'number' ? 'value' : 'category')}
+            yAxisType={resolvedYType === 'date' ? 'date' : (resolvedYType === 'number' ? 'value' : 'category')}
             xAxisData={finalXOptions}
             yAxisData={finalYOptions}
             xIsPercentage={fields.find(f => f.id === config.xField)?.isPercentage}
             yIsPercentage={fields.find(f => f.id === config.yField)?.isPercentage}
             sizeIsPercentage={fields.find(f => f.id === config.sizeField)?.isPercentage}
             enableMultiColor={config.enableMultiColor}
+            xFieldHasTime={config.xFieldHasTime}
+            yFieldHasTime={config.yFieldHasTime}
           />
         </div>
       )
@@ -1028,20 +1092,22 @@ function App() {
               config={config}
               data={data}
               permissionDenied={permissionDenied}
-              xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name : undefined}
-              yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name : undefined}
+              xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name || dateFields.find(f => f.id === config.xField)?.name : undefined}
+              yFieldName={config.yField ? numericFields.find(f => f.id === config.yField)?.name || categoryFields.find(f => f.id === config.yField)?.name || dateFields.find(f => f.id === config.yField)?.name : undefined}
               sizeFieldName={config.sizeField ? numericFields.find(f => f.id === config.sizeField)?.name || categoryFields.find(f => f.id === config.sizeField)?.name : undefined}
               nameFieldName={config.nameField ? textFields.find(f => f.id === config.nameField)?.name : undefined}
               showLabel={config.showLabel}
               loading={dataLoading}
-              xAxisType={resolvedXType === 'number' ? 'value' : 'category'}
-              yAxisType={resolvedYType === 'number' ? 'value' : 'category'}
+              xAxisType={resolvedXType === 'date' ? 'date' : (resolvedXType === 'number' ? 'value' : 'category')}
+              yAxisType={resolvedYType === 'date' ? 'date' : (resolvedYType === 'number' ? 'value' : 'category')}
               xAxisData={finalXOptions}
               yAxisData={finalYOptions}
               xIsPercentage={fields.find(f => f.id === config.xField)?.isPercentage}
               yIsPercentage={fields.find(f => f.id === config.yField)?.isPercentage}
               sizeIsPercentage={fields.find(f => f.id === config.sizeField)?.isPercentage}
               enableMultiColor={config.enableMultiColor}
+              xFieldHasTime={config.xFieldHasTime}
+              yFieldHasTime={config.yFieldHasTime}
             />
           </div>
         </div>
@@ -1135,8 +1201,8 @@ function App() {
                     <div style={{ marginBottom: '20px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <Text strong>{t('label.xAxis')}</Text>
-                        {/* 数值轴时显示"限定轴范围"按钮 */}
-                        {resolvedXType === 'number' && (
+                        {/* 数值轴或日期轴时显示"限定轴范围"按钮 */}
+                        {(resolvedXType === 'number' || resolvedXType === 'date') && (
                           <span
                             style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--semi-color-text-1)', fontSize: '12px' }}
                             onClick={() => {
@@ -1168,7 +1234,7 @@ function App() {
                           </Select.Option>
                         ))}
                       </Select>
-                      {/* 横轴范围输入框：仅在数值轴且启用时显示 */}
+                      {/* 横轴范围输入框：数值轴或日期轴且启用时显示 */}
                       {resolvedXType === 'number' && config.xAxisRangeEnabled && (
                         <div style={{ display: 'flex', gap: '8px', marginTop: 8 }}>
                           <Input
@@ -1185,6 +1251,59 @@ function App() {
                           />
                         </div>
                       )}
+                      {/* 日期轴范围选择器：使用 DatePicker */}
+                      {resolvedXType === 'date' && config.xAxisRangeEnabled && (() => {
+                        // 创建今天 00:00 和 23:59 的默认值
+                        const todayStart = new Date()
+                        todayStart.setHours(0, 0, 0, 0)
+                        const todayEnd = new Date()
+                        todayEnd.setHours(23, 59, 0, 0)
+
+                        return (
+                          <div style={{ display: 'flex', gap: '8px', marginTop: 8 }}>
+                            <DatePicker
+                              type={config.xFieldHasTime ? 'dateTime' : 'date'}
+                              format={config.xFieldHasTime ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd'}
+                              placeholder={t('placeholder.axisMin')}
+                              value={config.xAxisMin ? new Date(Number(config.xAxisMin)) : undefined}
+                              defaultPickerValue={todayStart}
+                              onChange={(date) => {
+                                if (date) {
+                                  // 开始时间默认 00:00（如果没有时间组件）
+                                  const d = date as Date
+                                  if (!config.xFieldHasTime) {
+                                    d.setHours(0, 0, 0, 0)
+                                  }
+                                  handleConfigChange('xAxisMin', String(d.getTime()))
+                                } else {
+                                  handleConfigChange('xAxisMin', undefined)
+                                }
+                              }}
+                              style={{ flex: 1 }}
+                            />
+                            <DatePicker
+                              type={config.xFieldHasTime ? 'dateTime' : 'date'}
+                              format={config.xFieldHasTime ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd'}
+                              placeholder={t('placeholder.axisMax')}
+                              value={config.xAxisMax ? new Date(Number(config.xAxisMax)) : undefined}
+                              defaultPickerValue={todayEnd}
+                              onChange={(date) => {
+                                if (date) {
+                                  // 结束时间默认 23:59（如果没有时间组件）
+                                  const d = date as Date
+                                  if (!config.xFieldHasTime) {
+                                    d.setHours(23, 59, 59, 999)
+                                  }
+                                  handleConfigChange('xAxisMax', String(d.getTime()))
+                                } else {
+                                  handleConfigChange('xAxisMax', undefined)
+                                }
+                              }}
+                              style={{ flex: 1 }}
+                            />
+                          </div>
+                        )
+                      })()}
                     </div>
 
 
@@ -1194,8 +1313,8 @@ function App() {
                     <div style={{ marginBottom: '20px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <Text strong>{t('label.yAxis')}</Text>
-                        {/* 数值轴时显示"限定轴范围"按钮 */}
-                        {resolvedYType === 'number' && (
+                        {/* 数值轴或日期轴时显示"限定轴范围"按钮 */}
+                        {(resolvedYType === 'number' || resolvedYType === 'date') && (
                           <span
                             style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--semi-color-text-1)', fontSize: '12px' }}
                             onClick={() => {
@@ -1227,7 +1346,7 @@ function App() {
                           </Select.Option>
                         ))}
                       </Select>
-                      {/* 纵轴范围输入框：仅在数值轴且启用时显示 */}
+                      {/* 纵轴范围输入框：数值轴用 Input */}
                       {resolvedYType === 'number' && config.yAxisRangeEnabled && (
                         <div style={{ display: 'flex', gap: '8px', marginTop: 8 }}>
                           <Input
@@ -1244,6 +1363,57 @@ function App() {
                           />
                         </div>
                       )}
+                      {/* 日期轴范围选择器：使用 DatePicker */}
+                      {resolvedYType === 'date' && config.yAxisRangeEnabled && (() => {
+                        // 创建今天 00:00 和 23:59 的默认值
+                        const todayStart = new Date()
+                        todayStart.setHours(0, 0, 0, 0)
+                        const todayEnd = new Date()
+                        todayEnd.setHours(23, 59, 0, 0)
+
+                        return (
+                          <div style={{ display: 'flex', gap: '8px', marginTop: 8 }}>
+                            <DatePicker
+                              type={config.yFieldHasTime ? 'dateTime' : 'date'}
+                              format={config.yFieldHasTime ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd'}
+                              placeholder={t('placeholder.axisMin')}
+                              value={config.yAxisMin ? new Date(Number(config.yAxisMin)) : undefined}
+                              defaultPickerValue={todayStart}
+                              onChange={(date) => {
+                                if (date) {
+                                  const d = date as Date
+                                  if (!config.yFieldHasTime) {
+                                    d.setHours(0, 0, 0, 0)
+                                  }
+                                  handleConfigChange('yAxisMin', String(d.getTime()))
+                                } else {
+                                  handleConfigChange('yAxisMin', undefined)
+                                }
+                              }}
+                              style={{ flex: 1 }}
+                            />
+                            <DatePicker
+                              type={config.yFieldHasTime ? 'dateTime' : 'date'}
+                              format={config.yFieldHasTime ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd'}
+                              placeholder={t('placeholder.axisMax')}
+                              value={config.yAxisMax ? new Date(Number(config.yAxisMax)) : undefined}
+                              defaultPickerValue={todayEnd}
+                              onChange={(date) => {
+                                if (date) {
+                                  const d = date as Date
+                                  if (!config.yFieldHasTime) {
+                                    d.setHours(23, 59, 59, 999)
+                                  }
+                                  handleConfigChange('yAxisMax', String(d.getTime()))
+                                } else {
+                                  handleConfigChange('yAxisMax', undefined)
+                                }
+                              }}
+                              style={{ flex: 1 }}
+                            />
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* 气泡大小：计数选项（默认） + 数值字段选项 */}

@@ -77,6 +77,15 @@ const COLOR_GROUP_FIELD_TYPES = [
 ]
 
 /**
+ * DATE_FIELD_TYPES - 日期类型的字段
+ * 用途：用于气泡图的横轴、纵轴（日期轴）
+ * 日期轴本质是数值轴，底层使用时间戳，只是显示格式为日期
+ */
+const DATE_FIELD_TYPES = [
+  FieldType.DateTime,     // 日期
+]
+
+/**
  * useFields - 字段hook
  * 功能：根据tableId获取指定工作表的所有字段，并分类为数字字段、文本字段和类目字段
  *
@@ -99,6 +108,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
   const [categoryFields, setCategoryFields] = useState<FieldInfo[]>([])
   const [multiSelectFields, setMultiSelectFields] = useState<FieldInfo[]>([])  // 多选字段（用于互斥判断）
   const [colorGroupFields, setColorGroupFields] = useState<FieldInfo[]>([])  // 支持颜色分组的字段
+  const [dateFields, setDateFields] = useState<FieldInfo[]>([])  // 日期类型字段
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadedTableId, setLoadedTableId] = useState<string | undefined>(undefined)
@@ -138,6 +148,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
           setCategoryFields([])
           setMultiSelectFields([])
           setColorGroupFields([])
+          setDateFields([])
           setLoading(true)
           return
         }
@@ -153,6 +164,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
         const category: FieldInfo[] = []
         const multiSelect: FieldInfo[] = []  // 多选字段
         const colorGroup: FieldInfo[] = []  // 支持颜色分组的字段
+        const dateList: FieldInfo[] = []  // 日期类型字段
 
         // 遍历所有字段，按类型分类
         fieldMetas.forEach((meta: any) => {
@@ -176,6 +188,17 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
             }
           }
 
+          // 检测日期字段是否包含时间显示
+          // 通过 dateFormat 属性判断，包含 HH:mm 或 hh:mm 等表示有时间
+          let hasTime = false
+          if (meta.type === FieldType.DateTime) {
+            // @ts-ignore - property 类型定义可能不完整
+            const dateFormat = meta.property?.dateFormat
+            if (typeof dateFormat === 'string') {
+              hasTime = dateFormat.includes('HH') || dateFormat.includes('hh') || dateFormat.includes('mm')
+            }
+          }
+
           const fieldInfo: FieldInfo = {
             id: meta.id,
             name: meta.name,
@@ -184,7 +207,9 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
             isFormula: meta.type === FieldType.Formula,
             isNumericFormula,
             isTextFormula,
-            isPercentage
+            isPercentage,
+            isDate: DATE_FIELD_TYPES.includes(meta.type),
+            hasTime
           }
 
           allFields.push(fieldInfo)
@@ -218,6 +243,9 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
           if (COLOR_GROUP_FIELD_TYPES.includes(meta.type)) {
             colorGroup.push(fieldInfo) // 颜色分组字段：可用于按字段值分组
           }
+          if (DATE_FIELD_TYPES.includes(meta.type)) {
+            dateList.push(fieldInfo) // 日期字段：可用于日期轴
+          }
         })
 
         // 更新状态
@@ -227,6 +255,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
         setCategoryFields(category)
         setMultiSelectFields(multiSelect)
         setColorGroupFields(colorGroup)
+        setDateFields(dateList)
         setLoadedTableId(tableId)
       } catch (err) {
         setError('获取字段失败：' + (err as Error).message)
@@ -241,7 +270,7 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
 
   /**
    * 返回字段列表、分类字段、加载状态和错误信息
-   * 分类字段包括：数字字段（用于数值计算）、文本字段（用于名称显示）、类目字段（可用于类目轴）、多选字段（用于互斥判断）
+   * 分类字段包括：数字字段（用于数值计算）、文本字段（用于名称显示）、类目字段（可用于类目轴）、多选字段（用于互斥判断）、日期字段（可用于日期轴）
    */
-  return { fields, numericFields, textFields, categoryFields, multiSelectFields, colorGroupFields, loading, error, loadedTableId }
+  return { fields, numericFields, textFields, categoryFields, multiSelectFields, colorGroupFields, dateFields, loading, error, loadedTableId }
 }

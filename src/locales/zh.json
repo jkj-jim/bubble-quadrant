@@ -69,6 +69,9 @@
         "noMatch": "暂无匹配结果",
         "noPermission": "当前数据源暂无权限，请切换同表格的其他数据源并保存后，再次尝试配置当前数据源"
     },
+    "hint": {
+        "dateAxisNoSplit": "日期轴不支持分割线"
+    },
     "button": {
         "saveAndView": "保存并查看",
         "median": "中位数",

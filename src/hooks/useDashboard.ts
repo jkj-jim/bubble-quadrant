@@ -46,10 +46,12 @@ export interface BubbleChartConfig {
   yField?: string          // 纵轴字段ID
   sizeField?: string       // 气泡大小字段ID
   sizeMode?: 'count' | 'field'  // 气泡大小模式：计数（按坐标聚合）或字段
-  xFieldType?: 'number' | 'category'  // 横轴字段类型（数值/类目）
-  yFieldType?: 'number' | 'category'  // 纵轴字段类型（数值/类目）
+  xFieldType?: 'number' | 'category' | 'date'  // 横轴字段类型（数值/类目/日期）
+  yFieldType?: 'number' | 'category' | 'date'  // 纵轴字段类型（数值/类目/日期）
   xFieldIsMultiSelect?: boolean       // 横轴是否为多选字段
   yFieldIsMultiSelect?: boolean       // 纵轴是否为多选字段
+  xFieldHasTime?: boolean             // 横轴日期字段是否包含时间
+  yFieldHasTime?: boolean             // 纵轴日期字段是否包含时间
   xFieldOptions?: string[]  // 横轴字段选项列表（类目轴时使用）
   yFieldOptions?: string[]  // 纵轴字段选项列表（类目轴时使用）
   viewId?: string           // 数据范围视图ID，undefined 表示全部数据
@@ -120,6 +122,8 @@ export interface FieldInfo {
   isNumericFormula?: boolean // 是否为数值类型的公式（通过 formatter 判断）
   isTextFormula?: boolean // 是否为文本类型的公式（没有 formatter）
   isPercentage?: boolean // 是否为百分比格式
+  isDate?: boolean       // 是否为日期字段
+  hasTime?: boolean      // 日期字段是否包含时间显示
 }
 
 /**

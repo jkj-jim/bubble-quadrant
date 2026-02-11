@@ -30,7 +30,7 @@ import { Empty, Toast } from '@douyinfe/semi-ui'
 /**
  * BubbleChartProps - 气泡图组件属性
  * 功能：定义组件接收的props类型
- * 扩展：支持数值轴和类目轴两种模式
+ * 扩展：支持数值轴、类目轴和日期轴三种模式
  */
 export interface BubbleChartProps {
   data: DataItem[]
@@ -42,8 +42,8 @@ export interface BubbleChartProps {
   yFieldName?: string       // 纵轴字段名（用于显示）
   sizeFieldName?: string    // 大小字段名（用于显示）
   nameFieldName?: string    // 名称字段名（用于判断是否显示标签）
-  xAxisType?: 'value' | 'category'  // 横轴类型（数值/类目）
-  yAxisType?: 'value' | 'category'  // 纵轴类型（数值/类目）
+  xAxisType?: 'value' | 'category' | 'date'  // 横轴类型（数值/类目/日期）
+  yAxisType?: 'value' | 'category' | 'date'  // 纵轴类型（数值/类目/日期）
   xAxisData?: string[]      // 横轴类目选项列表
   yAxisData?: string[]      // 纵轴类目选项列表
   xIsPercentage?: boolean   // 横轴是否为百分比格式
@@ -51,16 +51,51 @@ export interface BubbleChartProps {
   sizeIsPercentage?: boolean // 气泡大小是否为百分比格式
   enableMultiColor?: boolean // 是否开启多彩模式
   showLabel?: boolean        // 是否常显名称标签
+  xFieldHasTime?: boolean    // 横轴日期字段是否包含时间
+  yFieldHasTime?: boolean    // 纵轴日期字段是否包含时间
 }
 
 /**
  * BubbleChart - 气泡图组件
- * 功能：封装ECharts气泡图，支持数据渲染、响应式布局、数值轴和类目轴
+ * 功能：封装ECharts气泡图，支持数据渲染、响应式布局、数值轴、类目轴和日期轴
  * 说明：
  * - 支持数值轴（type: 'value'）用于传统的气泡图
  * - 支持类目轴（type: 'category'）用于散点图和混合轴场景
+ * - 支持日期轴（type: 'date'）用于时间序列数据，底层使用时间戳
  * - 类目轴显示用户在单选字段中设定的选项顺序
  */
+
+/**
+ * 日期格式化工具函数
+ * @param timestamp 毫秒时间戳
+ * @param hasTime 是否包含时间
+ * @param forTooltip 是否用于tooltip（tooltip显示年份）
+ */
+const formatDate = (timestamp: number, hasTime: boolean, forTooltip: boolean = false): string => {
+  const date = new Date(timestamp)
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+
+  if (forTooltip) {
+    // tooltip 显示完整日期（含年份）
+    const year = date.getFullYear()
+    const monthStr = String(month).padStart(2, '0')
+    const dayStr = String(day).padStart(2, '0')
+    if (hasTime) {
+      return `${year}-${monthStr}-${dayStr} ${hours}:${minutes}`
+    }
+    return `${year}-${monthStr}-${dayStr}`
+  }
+
+  // 轴刻度不显示年份
+  if (hasTime) {
+    return `${month}.${day} ${hours}:${minutes}`
+  }
+  return `${month}.${day}`
+}
+
 // 统一的图表样式配置
 // 使用 Semi UI 的 CSS 变量名，支持暗黑模式自动切换
 const CHART_STYLE_CONFIG = {
@@ -230,21 +265,25 @@ const calculateRegionStats = (
   regionKey: string,
   xThresholds: number[],
   yThresholds: number[],
-  xAxisType: 'value' | 'category',
-  yAxisType: 'value' | 'category'
+  xAxisType: 'value' | 'category' | 'date',
+  yAxisType: 'value' | 'category' | 'date'
 ) => {
   // 解析区域 key
   const [targetRow, targetCol] = regionKey.split('_').map(Number)
 
+  // 日期轴视同数值轴处理
+  const xIsCategory = xAxisType === 'category'
+  const yIsCategory = yAxisType === 'category'
+
   // 筛选属于该区域的气泡
   const bubblesInRegion = data.filter(item => {
-    // 获取 x 值（数值轴直接用值，类目轴用索引）
-    const xVal = xAxisType === 'category' && item.xCategoryIndex !== undefined
+    // 获取 x 值（数值轴/日期轴直接用值，类目轴用索引）
+    const xVal = xIsCategory && item.xCategoryIndex !== undefined
       ? item.xCategoryIndex
       : item.x as number
 
     // 获取 y 值
-    const yVal = yAxisType === 'category' && item.yCategoryIndex !== undefined
+    const yVal = yIsCategory && item.yCategoryIndex !== undefined
       ? item.yCategoryIndex
       : item.y as number
 
@@ -301,6 +340,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   enableMultiColor,
   showLabel,
   config,
+  xFieldHasTime = false,  // 横轴日期是否包含时间
+  yFieldHasTime = false,  // 纵轴日期是否包含时间
 }) => {
   const { t } = useTranslation()
 
@@ -428,14 +469,19 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
    * - 不使用 type: 'category'，而是使用 type: 'value'
    * - 通过 mapper.getAxisConfig() 提供 min/max/interval/formatter
    * - 这样可以让 markLine/markArea 精确定位到类目之间
+   * 
+   * 日期轴处理策略：
+   * - 使用 type: 'value'，底层是毫秒时间戳
+   * - 通过自定义 formatter 将时间戳转换为日期显示
    */
   const createAxisConfig = (axisConfig: {
-    type: 'value' | 'category'
+    type: 'value' | 'category' | 'date'
     name: string
     data?: string[]
     isPercentage?: boolean
     mapper?: ReturnType<typeof useCategoryAxisMapper>  // 类目轴映射器
     otherAxisIsCategory?: boolean  // 另一个轴是否是类目轴
+    hasTime?: boolean  // 日期轴是否包含时间
   }) => {
     // 基础配置（两种轴类型共用）
     const baseConfig = {
@@ -495,7 +541,31 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       }
     }
 
-    // 数值轴：标准配置
+    // 日期轴：使用 ECharts 内置的 time 轴类型
+    // time 轴会自动将刻度对齐到日期边界（如每天午夜），避免气泡位置和刻度标签的视觉偏移
+    if (axisConfig.type === 'date') {
+      const hasTime = axisConfig.hasTime ?? false
+      return {
+        ...baseConfig,
+        type: 'time' as const,
+        // 纯日期字段：最小刻度间隔为 1 天（86400000ms），防止出现小时级子刻度
+        // 含时间字段：不设限制，允许按小时/分钟级别显示刻度
+        ...(hasTime ? {} : { minInterval: 86400000 }),
+        // 给两端加留白，防止首尾数据点紧贴轴边缘且没有对应刻度，纯日期字段两端扩展1天，含时间字段两端扩展半天
+        min: (value: any) => value.min - (hasTime ? 43200000 : 86400000),
+        max: (value: any) => value.max + (hasTime ? 43200000 : 86400000),
+        axisLabel: {
+          color: chartStyles.colors.axisLabel,
+          formatter: (value: any) => {
+            if (typeof value === 'number') {
+              return formatDate(value, hasTime, false)
+            }
+            return value
+          }
+        }
+      }
+    }
+
     return {
       ...baseConfig,
       type: 'value' as const,
@@ -570,6 +640,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     /**
      * 使用工厂函数生成X轴和Y轴配置
      * 类目轴传入 mapper 以实现"伪装数值轴"效果
+     * 日期轴传入 hasTime 以决定日期显示格式
      */
     const xAxis = createAxisConfig({
       type: xAxisType,
@@ -577,7 +648,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       data: xAxisType === 'category' ? xAxisData : undefined,
       isPercentage: xIsPercentage,
       mapper: xAxisType === 'category' ? xAxisMapper : undefined,
-      otherAxisIsCategory: yAxisType === 'category'  // Y轴是类目轴时，X轴显示在边缘
+      otherAxisIsCategory: yAxisType === 'category',  // Y轴是类目轴时，X轴显示在边缘
+      hasTime: xFieldHasTime  // 日期轴是否显示时间
     }) as any
 
     const yAxis = createAxisConfig({
@@ -586,25 +658,27 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       data: yAxisType === 'category' ? yAxisData : undefined,
       isPercentage: yIsPercentage,
       mapper: yAxisType === 'category' ? yAxisMapper : undefined,
-      otherAxisIsCategory: xAxisType === 'category'  // X轴是类目轴时，Y轴显示在边缘
+      otherAxisIsCategory: xAxisType === 'category',  // X轴是类目轴时，Y轴显示在边缘
+      hasTime: yFieldHasTime  // 日期轴是否显示时间
     }) as any
 
-    // ===== 轴范围限制：仅数值轴生效 =====
-    // 如果配置了轴范围限制且是数值轴，应用 min/max 到轴配置
-    if (xAxisType === 'value' && config.xAxisRangeEnabled) {
+    // ===== 轴范围限制：数值轴和日期轴生效 =====
+    // 如果配置了轴范围限制且是数值轴/日期轴，应用 min/max 到轴配置
+    if ((xAxisType === 'value' || xAxisType === 'date') && config.xAxisRangeEnabled) {
       if (config.xAxisMin !== undefined && config.xAxisMin !== '') {
-        xAxis.min = parseFloat(config.xAxisMin)
+        // 日期轴：配置值可能是时间戳（已经是毫秒）
+        xAxis.min = xAxisType === 'date' ? Number(config.xAxisMin) : parseFloat(config.xAxisMin)
       }
       if (config.xAxisMax !== undefined && config.xAxisMax !== '') {
-        xAxis.max = parseFloat(config.xAxisMax)
+        xAxis.max = xAxisType === 'date' ? Number(config.xAxisMax) : parseFloat(config.xAxisMax)
       }
     }
-    if (yAxisType === 'value' && config.yAxisRangeEnabled) {
+    if ((yAxisType === 'value' || yAxisType === 'date') && config.yAxisRangeEnabled) {
       if (config.yAxisMin !== undefined && config.yAxisMin !== '') {
-        yAxis.min = parseFloat(config.yAxisMin)
+        yAxis.min = yAxisType === 'date' ? Number(config.yAxisMin) : parseFloat(config.yAxisMin)
       }
       if (config.yAxisMax !== undefined && config.yAxisMax !== '') {
-        yAxis.max = parseFloat(config.yAxisMax)
+        yAxis.max = yAxisType === 'date' ? Number(config.yAxisMax) : parseFloat(config.yAxisMax)
       }
     }
 
@@ -774,13 +848,19 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           let yDisplay = data.data ? data.data[1] : data.value[1]
           let sizeDisplay: number | string = data.data ? data.data[2] : data.value[2]
 
-          // 格式化百分比显示
-          if (xIsPercentage && typeof xDisplay === 'number') {
+          // 格式化显示 - 日期轴处理
+          if (xAxisType === 'date' && typeof xDisplay === 'number') {
+            xDisplay = formatDate(xDisplay, xFieldHasTime, true)  // tooltip 显示完整日期
+          } else if (xIsPercentage && typeof xDisplay === 'number') {
             xDisplay = parseFloat((xDisplay * 100).toFixed(2)) + '%'
           }
-          if (yIsPercentage && typeof yDisplay === 'number') {
+
+          if (yAxisType === 'date' && typeof yDisplay === 'number') {
+            yDisplay = formatDate(yDisplay, yFieldHasTime, true)  // tooltip 显示完整日期
+          } else if (yIsPercentage && typeof yDisplay === 'number') {
             yDisplay = parseFloat((yDisplay * 100).toFixed(2)) + '%'
           }
+
           // 计数模式下 size 是整数，不需要百分比格式化
           if (sizeIsPercentage && typeof sizeDisplay === 'number' && config.sizeMode !== 'count') {
             sizeDisplay = parseFloat((sizeDisplay * 100).toFixed(2)) + '%'
@@ -869,10 +949,15 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           data: (() => {
             if (xVals.length === 0 && yVals.length === 0) return []
 
-            const xMin = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().min : -1e10
-            const xMax = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().max : 1e10
-            const yMin = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().min : -1e10
-            const yMax = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().max : 1e10
+            // 计算轴边界值
+            // 注意：日期轴的值是毫秒时间戳（~1.7e12），普通 -1e10/1e10 不够覆盖
+            // 使用 -1e15/1e15 可以覆盖所有可能的数值和日期范围
+            const defaultMin = -1e15
+            const defaultMax = 1e15
+            const xMin = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().min : defaultMin
+            const xMax = xAxisType === 'category' && xAxisMapper.length > 0 ? xAxisMapper.getAxisConfig().max : defaultMax
+            const yMin = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().min : defaultMin
+            const yMax = yAxisType === 'category' && yAxisMapper.length > 0 ? yAxisMapper.getAxisConfig().max : defaultMax
 
             // 构建边界数组
             const xBounds = [xMin, ...xVals, xMax]
@@ -1551,6 +1636,14 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         }
         if (sizeIsPercentage && typeof sizeDisplay === 'number') {
           sizeDisplay = parseFloat((sizeDisplay * 100).toFixed(2)) + '%'
+        }
+
+        // 格式化日期显示（将时间戳转为可读日期）
+        if (xAxisType === 'date' && typeof xDisplay === 'number') {
+          xDisplay = formatDate(xDisplay, xFieldHasTime, true)
+        }
+        if (yAxisType === 'date' && typeof yDisplay === 'number') {
+          yDisplay = formatDate(yDisplay, yFieldHasTime, true)
         }
 
         // 构建复制文本

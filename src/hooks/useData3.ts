@@ -37,7 +37,7 @@ export interface DataItem {
 const processCategoryValue = (
   value: any,
   fieldOptions: string[] | undefined
-): { original: string; index: number } => {
+): { original: string; index: number } | null => {
   let textValue = ''
 
   // 提取文本值（处理不同的数据格式）
@@ -57,6 +57,11 @@ const processCategoryValue = (
     }
   } else {
     textValue = String(value)
+  }
+
+  // 空值返回 null，调用方跳过该记录
+  if (!textValue) {
+    return null
   }
 
   // 如果未提供选项列表，返回默认值
@@ -120,18 +125,19 @@ const extractMultiSelectValues = (value: any): string[] => {
 /**
  * processNumericValue - 处理数值字段值
  *
- * 功能：将字段值转换为数值，并进行聚合计算（求和）
+ * 功能：将字段值转换为数值
  *
  * 处理逻辑：
  * - 将字段值转换为 number 类型
- * - 如果转换失败（NaN），返回 0
+ * - 如果值为 null/undefined/空字符串，返回 null（表示空值，调用方应跳过该记录）
+ * - 如果转换失败（NaN），返回 null
  * - 适用于数值字段（数字、货币、进度、评分等）
  *
  * 使用场景：当用户选择数值字段作为横轴、纵轴或气泡大小时使用
  */
-const processNumericValue = (value: any): number => {
-  if (value === null || value === undefined) {
-    return 0
+const processNumericValue = (value: any): number | null => {
+  if (value === null || value === undefined || value === '') {
+    return null
   }
 
   // 如果已经是数值类型，直接使用
@@ -149,23 +155,70 @@ const processNumericValue = (value: any): number => {
       return processNumericValue(value.value)
     }
     // 尝试转换为字符串再解析
-    return parseFloat(String(value)) || 0
+    const parsed = parseFloat(String(value))
+    return isNaN(parsed) ? null : parsed
   }
 
   // 转换为字符串并去除首尾空格
   const strValue = String(value).trim()
+  if (!strValue) return null
 
   // 处理百分比（如 "9%" -> 0.09）
   if (strValue.endsWith('%')) {
     const floatValue = parseFloat(strValue)
-    return isNaN(floatValue) ? 0 : floatValue / 100
+    return isNaN(floatValue) ? null : floatValue / 100
   }
 
   // 解析为浮点数
   const floatValue = parseFloat(strValue)
 
-  // 如果解析失败（NaN），返回 0
-  return isNaN(floatValue) ? 0 : floatValue
+  // 如果解析失败（NaN），返回 null
+  return isNaN(floatValue) ? null : floatValue
+}
+
+/**
+ * processDateValue - 处理日期字段值
+ *
+ * 功能：将日期字段值转换为毫秒时间戳
+ *
+ * 处理逻辑：
+ * - 飞书日期字段返回的是毫秒级时间戳
+ * - 直接使用原始数值，不做秒/毫秒的智能检测（因为阈值检测对 2001 年之前的日期会产生误判）
+ * - 空值返回 null（用于标记无效记录）
+ *
+ * 使用场景：当用户选择日期字段作为横轴、纵轴时使用
+ */
+const processDateValue = (value: any): number | null => {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  // 如果已经是数值类型，直接作为毫秒时间戳使用
+  if (typeof value === 'number') {
+    return value
+  }
+
+  // 处理字符串格式的时间戳
+  if (typeof value === 'string') {
+    if (!value.trim()) return null
+    const parsed = parseInt(value, 10)
+    if (!isNaN(parsed)) {
+      return parsed
+    }
+    // 尝试解析日期字符串
+    const dateTime = new Date(value).getTime()
+    if (!isNaN(dateTime)) {
+      return dateTime
+    }
+    return null
+  }
+
+  // 处理对象格式（可能有 value 属性）
+  if (typeof value === 'object' && value.value !== undefined) {
+    return processDateValue(value.value)
+  }
+
+  return null
 }
 
 /**
@@ -222,8 +275,8 @@ export const useData3 = (
   const [permissionDenied, setPermissionDenied] = useState(false)  // 权限错误状态
   const [finalXOptions, setFinalXOptions] = useState<string[] | undefined>()
   const [finalYOptions, setFinalYOptions] = useState<string[] | undefined>()
-  const [resolvedXType, setResolvedXType] = useState<'number' | 'category'>('number')
-  const [resolvedYType, setResolvedYType] = useState<'number' | 'category'>('number')
+  const [resolvedXType, setResolvedXType] = useState<'number' | 'category' | 'date'>('number')
+  const [resolvedYType, setResolvedYType] = useState<'number' | 'category' | 'date'>('number')
 
   useEffect(() => {
     const fetchData = async (currentConfig: BubbleChartConfig) => {
@@ -331,11 +384,12 @@ export const useData3 = (
           : liveYFieldOptions
 
         // 自动检测字段类型（如果未指定）
+        // 日期类型不需要自动检测，直接使用配置中的类型
         const effectiveXType = xFieldType || detectFieldType(records, xField)
         const effectiveYType = yFieldType || detectFieldType(records, yField)
 
-        setResolvedXType(effectiveXType)
-        setResolvedYType(effectiveYType)
+        setResolvedXType(effectiveXType as 'number' | 'category' | 'date')
+        setResolvedYType(effectiveYType as 'number' | 'category' | 'date')
 
         // 动态收集类目选项（针对公式字段或缺少选项的情况）
         if (effectiveXType === 'category' && (!xOptions || xOptions.length === 0)) {
@@ -374,26 +428,40 @@ export const useData3 = (
           }>()
 
           for (const record of records) {
-            // 处理 x 坐标
+            // 处理 x 坐标（空值跳过该记录）
             let xVal: number | string
             let xCategoryIndex: number | undefined
             if (effectiveXType === 'category') {
               const result = processCategoryValue(record.fields[xField], xOptions)
+              if (result === null) continue  // 类目空值，跳过
               xVal = result.original
               xCategoryIndex = result.index
+            } else if (effectiveXType === 'date') {
+              const dateVal = processDateValue(record.fields[xField])
+              if (dateVal === null) continue  // 日期空值，跳过
+              xVal = dateVal
             } else {
-              xVal = processNumericValue(record.fields[xField])
+              const numVal = processNumericValue(record.fields[xField])
+              if (numVal === null) continue  // 数值空值，跳过
+              xVal = numVal
             }
 
-            // 处理 y 坐标
+            // 处理 y 坐标（空值跳过该记录）
             let yVal: number | string
             let yCategoryIndex: number | undefined
             if (effectiveYType === 'category') {
               const result = processCategoryValue(record.fields[yField], yOptions)
+              if (result === null) continue  // 类目空值，跳过
               yVal = result.original
               yCategoryIndex = result.index
+            } else if (effectiveYType === 'date') {
+              const dateVal = processDateValue(record.fields[yField])
+              if (dateVal === null) continue  // 日期空值，跳过
+              yVal = dateVal
             } else {
-              yVal = processNumericValue(record.fields[yField])
+              const numVal = processNumericValue(record.fields[yField])
+              if (numVal === null) continue  // 数值空值，跳过
+              yVal = numVal
             }
 
             // 生成坐标 key（用于分组）
@@ -574,13 +642,19 @@ const processGroupRecords = (
   xField: string,
   yField: string,
   sizeField: string | undefined,
-  xFieldType: 'number' | 'category' | undefined,
-  yFieldType: 'number' | 'category' | undefined,
+  xFieldType: 'number' | 'category' | 'date' | undefined,
+  yFieldType: 'number' | 'category' | 'date' | undefined,
   xFieldOptions: string[] | undefined,
   yFieldOptions: string[] | undefined
 ): DataItem | null => {
-  // 情况1：双轴都是数值（传统气泡图，进行数值聚合）
-  if (xFieldType !== 'category' && yFieldType !== 'category') {
+  // 日期类型视同数值类型处理（底层是时间戳）
+  const xIsNumeric = xFieldType !== 'category'
+  const yIsNumeric = yFieldType !== 'category'
+  const xIsDate = xFieldType === 'date'
+  const yIsDate = yFieldType === 'date'
+
+  // 情况1：双轴都是数值/日期（传统气泡图，进行数值聚合）
+  if (xIsNumeric && yIsNumeric) {
     let xSum = 0
     let ySum = 0
     let sizeSum = 0
@@ -588,22 +662,26 @@ const processGroupRecords = (
 
     for (const record of records) {
       try {
-        const xVal = record.fields[xField]
-        const x = processNumericValue(xVal)
+        // 日期字段使用 processDateValue，数值字段使用 processNumericValue
+        const x = xIsDate
+          ? processDateValue(record.fields[xField])
+          : processNumericValue(record.fields[xField])
 
-        const yVal = record.fields[yField]
-        const y = processNumericValue(yVal)
+        const y = yIsDate
+          ? processDateValue(record.fields[yField])
+          : processNumericValue(record.fields[yField])
 
-        if (x !== 0 || y !== 0) {
-          xSum += x
-          ySum += y
-          count++
-        }
+        // 横轴或纵轴为空值，跳过该记录
+        if (x === null || y === null) continue
+
+        xSum += x
+        ySum += y
+        count++
 
         if (sizeField) {
           const sizeVal = record.fields[sizeField]
           const size = processNumericValue(sizeVal)
-          sizeSum += size
+          sizeSum += (size ?? 0)
         }
       } catch (err) {
         console.warn('[useData3] ⚠️ 处理记录失败:', err)
@@ -619,14 +697,16 @@ const processGroupRecords = (
     }
   }
 
-  // 情况2：X轴类目 + Y轴数值（混合轴）
-  if (xFieldType === 'category' && yFieldType !== 'category') {
+  // 情况2：X轴类目 + Y轴数值/日期（混合轴）
+  if (!xIsNumeric && yIsNumeric) {
     if (records.length > 0) {
       const firstRecord = records[0]
       const xCategory = processCategoryValue(
         firstRecord.fields[xField],
         xFieldOptions
       )
+      // X轴类目空值，跳过
+      if (xCategory === null) return null
 
       let ySum = 0
       let sizeSum = 0
@@ -634,18 +714,21 @@ const processGroupRecords = (
 
       for (const record of records) {
         try {
-          const yVal = record.fields[yField]
-          const y = processNumericValue(yVal)
+          // 日期字段使用 processDateValue，数值字段使用 processNumericValue
+          const y = yIsDate
+            ? processDateValue(record.fields[yField])
+            : processNumericValue(record.fields[yField])
 
-          if (y !== 0) {
-            ySum += y
-            count++
-          }
+          // 空值跳过
+          if (y === null) continue
+
+          ySum += y
+          count++
 
           if (sizeField) {
             const sizeVal = record.fields[sizeField]
             const size = processNumericValue(sizeVal)
-            sizeSum += size
+            sizeSum += (size ?? 0)
           }
         } catch (err) {
           console.warn('[useData3] ⚠️ 处理记录失败:', err)
@@ -663,14 +746,16 @@ const processGroupRecords = (
     }
   }
 
-  // 情况3：X轴数值 + Y轴类目（混合轴）
-  if (xFieldType !== 'category' && yFieldType === 'category') {
+  // 情况3：X轴数值/日期 + Y轴类目（混合轴）
+  if (xIsNumeric && !yIsNumeric) {
     if (records.length > 0) {
       const firstRecord = records[0]
       const yCategory = processCategoryValue(
         firstRecord.fields[yField],
         yFieldOptions
       )
+      // Y轴类目空值，跳过
+      if (yCategory === null) return null
 
       let xSum = 0
       let sizeSum = 0
@@ -678,18 +763,21 @@ const processGroupRecords = (
 
       for (const record of records) {
         try {
-          const xVal = record.fields[xField]
-          const x = processNumericValue(xVal)
+          // 日期字段使用 processDateValue，数值字段使用 processNumericValue
+          const x = xIsDate
+            ? processDateValue(record.fields[xField])
+            : processNumericValue(record.fields[xField])
 
-          if (x !== 0) {
-            xSum += x
-            count++
-          }
+          // 空值跳过
+          if (x === null) continue
+
+          xSum += x
+          count++
 
           if (sizeField) {
             const sizeVal = record.fields[sizeField]
             const size = processNumericValue(sizeVal)
-            sizeSum += size
+            sizeSum += (size ?? 0)
           }
         } catch (err) {
           console.warn('[useData3] ⚠️ 处理记录失败:', err)
@@ -708,7 +796,7 @@ const processGroupRecords = (
   }
 
   // 情况4：双轴都是类目（散点图，显示每个点）
-  if (xFieldType === 'category' && yFieldType === 'category') {
+  if (!xIsNumeric && !yIsNumeric) {
     // 类目轴场景下，通常不需要聚合
     // 这里简单处理：如果有数据，返回第一个点的信息
     // TODO: 如果需要显示所有点，需要修改数据结构支持一个name多个点
@@ -722,13 +810,15 @@ const processGroupRecords = (
         firstRecord.fields[yField],
         yFieldOptions
       )
+      // 类目空值，跳过
+      if (xCategory === null || yCategory === null) return null
 
       let sizeSum = 0
       if (sizeField) {
         for (const record of records) {
           const sizeVal = record.fields[sizeField]
           const size = processNumericValue(sizeVal)
-          sizeSum += size
+          sizeSum += (size ?? 0)
         }
       }
 
