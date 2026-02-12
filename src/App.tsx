@@ -1601,7 +1601,7 @@ function App() {
               onMouseEnter={(e) => e.currentTarget.style.color = 'var(--semi-color-primary)'}
               onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-2)'}
             >
-              更多说明
+              使用秘籍
             </a>
             <Button
               type="primary"
