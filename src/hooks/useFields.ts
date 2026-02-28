@@ -172,12 +172,21 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
           let isNumericFormula = false
           let isTextFormula = false
           let isPercentage = false
+          let isSelectFormula = false  // 公式字段是否为单选格式
           if (meta.type === FieldType.Formula) {
             // @ts-ignore - property 类型定义可能不完整
             const formatter = meta.property?.formatter
-            // 如果有 formatter，通常意味着是数字或日期（这里我们主要关注数字）
-            // 简单的判断：只要有 formatter 就视为数值优先
-            if (formatter) {
+            // @ts-ignore - property 类型定义可能不完整
+            const dataType = meta.property?.dataType
+
+            // 检查公式字段是否输出为单选格式
+            // 通过 dataType.type 判断（如公式引用了单选字段，输出类型可能为 SingleSelect）
+            if (dataType?.type === FieldType.SingleSelect) {
+              isSelectFormula = true
+              isTextFormula = true  // 单选格式的公式也视为文本类型
+            } else if (formatter) {
+              // 如果有 formatter，通常意味着是数字或日期（这里我们主要关注数字）
+              // 简单的判断：只要有 formatter 就视为数值优先
               isNumericFormula = true
               if (typeof formatter === 'string' && formatter.includes('%')) {
                 isPercentage = true
@@ -209,7 +218,8 @@ export const useFields = (tableId?: string, baseInstance?: any) => {
             isTextFormula,
             isPercentage,
             isDate: DATE_FIELD_TYPES.includes(meta.type),
-            hasTime
+            hasTime,
+            isSelectFormula
           }
 
           allFields.push(fieldInfo)

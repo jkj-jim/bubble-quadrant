@@ -110,6 +110,7 @@ const CHART_STYLE_CONFIG = {
     maxSize: 70,
     defaultSize: 8,
     opacity: 0.7,
+    nativeColorOpacity: 0.9,  // 使用飞书原生单选颜色时的不透明度（更接近原始色）
     borderColor: '--semi-grey-9'
   },
   label: {
@@ -351,14 +352,17 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   // chartInstanceRef: ECharts实例引用
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
 
-  //Echarts 风格色板
-  // const colorPalette = [
-  //   '#5070dd', '#b6d634', '#505372', '#ff994d', '#0ca8df', '#ffd10a', '#fb628b', '#785db0', '#3fbe95'
-  // ]
-
-  // 飞书风格色板
+  // 优化色板（9色）：4明4暗 + 灰，每个色相唯一，无同色系混淆
   const colorPalette = [
-    '#336DF4', '#5B65F5', '#25B0E7', '#DB7018', '#FFC60A', '#8C55EC', '#FFE928', '#F54A45', '#91AD00', '#BF3DBF', '#35BD4B', '#DF58A5', '#1FA18F'
+    '#3370FF', // 蔚蓝（暗）
+    '#FF5255', // 正红（明）
+    '#7ED957', // 苹果绿（明）
+    '#FF7A30', // 橙色（明）
+    '#7B61FF', // 靛紫（暗）
+    '#FFD000', // 金黄（明）
+    '#2DBDB6', // 青碧（暗）
+    '#E54598', // 玫红（暗）
+    '#6B7B8D', // 深灰
   ]
 
   // 获取 CSS 变量颜色的辅助函数
@@ -785,28 +789,46 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
 
     // ===== 颜色分组映射 =====
     // 如果配置了颜色分组，构建分组 -> 颜色的映射
-    const colorGroupMap = new Map<string, { color: string, count: number }>()
+    const colorGroupMap = new Map<string, { color: string, count: number, isNativeColor: boolean }>()
 
     if (config.colorGroupType) {
       // 收集所有唯一的分组 key
+      // 优先使用飞书原生单选颜色，降级使用固定色板
+      const optionColors = config.colorGroupOptionColors || {}
+      let fallbackColorIndex = 0  // 降级色板的独立计数器
+
       seriesData.forEach((item: any) => {
         const key = item.colorGroupKey || ''
         const displayKey = key || emptyLabel  // 空值显示为"空"
         if (!colorGroupMap.has(displayKey)) {
-          const colorIndex = colorGroupMap.size % colorPalette.length
-          colorGroupMap.set(displayKey, { color: colorPalette[colorIndex], count: 0 })
+          // 优先使用飞书原生颜色（通过选项名匹配）
+          let color: string
+          let isNativeColor = false
+          if (optionColors[key]) {
+            color = optionColors[key]
+            isNativeColor = true
+          } else {
+            // 降级使用固定色板
+            color = colorPalette[fallbackColorIndex % colorPalette.length]
+            fallbackColorIndex++
+          }
+          colorGroupMap.set(displayKey, { color, count: 0, isNativeColor })
         }
         const groupInfo = colorGroupMap.get(displayKey)!
         groupInfo.count++
       })
 
-      // 更新 seriesData 中的颜色
+      // 更新 seriesData 中的颜色和透明度
       seriesData.forEach((item: any) => {
         const key = item.colorGroupKey || ''
         const displayKey = key || emptyLabel
         const groupInfo = colorGroupMap.get(displayKey)
         if (groupInfo) {
           item.itemStyle.color = groupInfo.color
+          // 使用飞书原生颜色时采用更高的不透明度，使颜色更接近飞书表格中的视觉效果
+          if (groupInfo.isNativeColor) {
+            item.itemStyle.opacity = chartStyles.bubble.nativeColorOpacity
+          }
         }
       })
     }
@@ -833,7 +855,10 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         // 改用事件监听 legendselectchanged 来阻止隐藏数据
         data: Array.from(colorGroupMap.entries()).map(([key, info]) => ({
           name: key,
-          itemStyle: { color: info.color }
+          itemStyle: {
+            color: info.color,
+            opacity: info.isNativeColor ? chartStyles.bubble.nativeColorOpacity : chartStyles.bubble.opacity
+          }
         })),
         textStyle: {
           color: chartStyles.colors.axisLabel

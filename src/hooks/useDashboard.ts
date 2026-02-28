@@ -99,6 +99,7 @@ export interface BubbleChartConfig {
   // 高级配置 - 颜色分组
   colorGroupType?: 'quadrant' | 'field'  // 分组类型：按象限或按字段
   colorGroupField?: string                // 分组字段ID（当 colorGroupType 为 'field' 时）
+  colorGroupOptionColors?: Record<string, string>  // 颜色分组选项名→颜色映射（飞书原生单选颜色）
 }
 
 
@@ -124,6 +125,7 @@ export interface FieldInfo {
   isPercentage?: boolean // 是否为百分比格式
   isDate?: boolean       // 是否为日期字段
   hasTime?: boolean      // 日期字段是否包含时间显示
+  isSelectFormula?: boolean // 公式字段是否为单选格式（property.dataType.type === SingleSelect）
 }
 
 /**

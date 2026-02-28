@@ -594,6 +594,14 @@ function App() {
     effectiveBase  // 应用插件模式下使用 workspace 的 base
   )
 
+  // 获取颜色分组字段的选项和颜色映射（用于按字段分组时使用飞书原生单选颜色）
+  const { optionColorMap: colorGroupOptionColors } = useFieldOptions(
+    config.dataSource,
+    config.colorGroupField,
+    config.colorGroupType === 'field' && !!config.colorGroupField,  // 仅在按字段分组时获取
+    effectiveBase
+  )
+
   // 根据当前配置获取和处理气泡图数据
   // useData hook 现在会返回 data 和最终用于渲染的 options，以及自动检测出的轴类型
   // 应用插件模式下传入 workspaceBitable.base
@@ -964,6 +972,8 @@ function App() {
       ...latestConfig,
       xFieldOptions: latestConfig.xFieldType === 'category' ? liveXFieldOptions : undefined,
       yFieldOptions: latestConfig.yFieldType === 'category' ? liveYFieldOptions : undefined,
+      // 保存颜色分组的选项颜色映射（仅在按字段分组时保存）
+      colorGroupOptionColors: latestConfig.colorGroupType === 'field' ? colorGroupOptionColors : undefined,
     }
 
     try {
@@ -1053,7 +1063,7 @@ function App() {
         }}>
           <BubbleChart
             theme={theme}
-            config={config}
+            config={{ ...config, colorGroupOptionColors: colorGroupOptionColors && Object.keys(colorGroupOptionColors).length > 0 ? colorGroupOptionColors : config.colorGroupOptionColors }}
             data={data}
             permissionDenied={permissionDenied}
             xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name || dateFields.find(f => f.id === config.xField)?.name : undefined}
@@ -1089,7 +1099,7 @@ function App() {
           }}>
             <BubbleChart
               theme={theme}
-              config={config}
+              config={{ ...config, colorGroupOptionColors: colorGroupOptionColors && Object.keys(colorGroupOptionColors).length > 0 ? colorGroupOptionColors : config.colorGroupOptionColors }}
               data={data}
               permissionDenied={permissionDenied}
               xFieldName={config.xField ? numericFields.find(f => f.id === config.xField)?.name || categoryFields.find(f => f.id === config.xField)?.name || dateFields.find(f => f.id === config.xField)?.name : undefined}
@@ -1532,7 +1542,14 @@ function App() {
                     <div style={{ marginBottom: '20px' }}>
                       {/* 标题行：包含标签和清除按钮 */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <Text strong style={config.sizeMode === 'count' ? { color: 'var(--semi-color-text-2)' } : {}}>{t('label.colorGroup')}</Text>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          <Text strong style={config.sizeMode === 'count' ? { color: 'var(--semi-color-text-2)' } : {}}>{t('label.colorGroup')}</Text>
+                          {config.sizeMode !== 'count' && (
+                            <Tooltip content={t('tooltip.colorGroup')}>
+                              <IconIssueStroked style={{ color: 'var(--semi-color-text-2)', marginLeft: 4, fontSize: 14, cursor: 'pointer' }} />
+                            </Tooltip>
+                          )}
+                        </div>
                         {/* 已选择时显示清除按钮（计数模式下不显示） */}
                         {(config.colorGroupType) && config.sizeMode !== 'count' && (
                           <span

@@ -22,7 +22,7 @@
  */
 
 import { useEffect, useState, useRef } from 'react'
-import { base, FieldType, type ISelectFieldOption } from '@lark-base-open/js-sdk'
+import { base, ui, FieldType, type ISelectFieldOption } from '@lark-base-open/js-sdk'
 
 /**
  * OptionsCache - 选项缓存接口
@@ -31,6 +31,7 @@ import { base, FieldType, type ISelectFieldOption } from '@lark-base-open/js-sdk
 interface OptionsCache {
   [key: string]: {
     options: string[]
+    optionColorMap: Record<string, string>  // 选项名→飞书原生背景色映射
     timestamp: number
   }
 }
@@ -64,11 +65,14 @@ export const useFieldOptions = (
   baseInstance?: any  // 应用插件模式下传入 workspaceBitable.base
 ) => {
   const [options, setOptions] = useState<string[]>([])
+  const [optionColorMap, setOptionColorMap] = useState<Record<string, string>>({})  // 选项名→飞书原生背景色映射
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // 使用useRef创建缓存对象，避免每次渲染重新创建
   const cacheRef = useRef<OptionsCache>({})
+  // 全局颜色映射表缓存（颜色序号→色值），只需获取一次
+  const colorInfoCacheRef = useRef<{ id: number; bgColor: string }[] | null>(null)
 
   /**
    * 生成缓存key
@@ -94,17 +98,18 @@ export const useFieldOptions = (
   /**
    * 从缓存获取选项
    */
-  const getOptionsFromCache = (cacheKey: string): string[] | null => {
+  const getOptionsFromCache = (cacheKey: string): { options: string[]; optionColorMap: Record<string, string> } | null => {
     const cached = cacheRef.current[cacheKey]
-    return cached ? cached.options : null
+    return cached ? { options: cached.options, optionColorMap: cached.optionColorMap } : null
   }
 
   /**
    * 保存选项到缓存
    */
-  const saveOptionsToCache = (cacheKey: string, opts: string[]): void => {
+  const saveOptionsToCache = (cacheKey: string, opts: string[], colorMap: Record<string, string>): void => {
     cacheRef.current[cacheKey] = {
       options: opts,
+      optionColorMap: colorMap,
       timestamp: Date.now(),
     }
   }
@@ -121,13 +126,34 @@ export const useFieldOptions = (
   }
 
   /**
+   * 获取全局颜色映射表（颜色序号→色值）
+   * 使用 ui.getSelectOptionColorInfoList() 获取，全局只需获取一次
+   */
+  const getColorInfoList = async (): Promise<{ id: number; bgColor: string }[]> => {
+    if (colorInfoCacheRef.current) {
+      return colorInfoCacheRef.current
+    }
+    try {
+      // 使用传入的 baseInstance 对应的 ui 模块，如果没有则使用默认的 ui
+      const colorInfoList = await ui.getSelectOptionColorInfoList()
+      const simplified = colorInfoList.map(c => ({ id: c.id, bgColor: c.bgColor }))
+      colorInfoCacheRef.current = simplified
+      return simplified
+    } catch (err) {
+      console.warn('[useFieldOptions] 获取颜色映射表失败，将使用默认色板:', err)
+      return []
+    }
+  }
+
+  /**
    * 获取字段选项的实际API调用
    * 使用 field.getOptions() 获取单选字段的所有选项
+   * 同时构建选项名→飞书原生背景色的映射
    *
    * 重要修改：如果字段不是单选字段，返回空数组而不是抛出错误
    * 原因：支持在App.tsx中统一调用，无论字段类型是什么
    */
-  const fetchOptions = async (tid: string, fid: string): Promise<string[]> => {
+  const fetchOptions = async (tid: string, fid: string): Promise<{ options: string[]; colorMap: Record<string, string> }> => {
     try {
       // 获取工作表（使用传入的 baseInstance，如果没有则使用默认的 base）
       const currentBase = baseInstance || base
@@ -137,16 +163,41 @@ export const useFieldOptions = (
       // 获取字段元数据，判断是否为单选字段
       const fieldMeta = await field.getMeta()
 
-      // 只处理单选和多选字段，其他字段返回空数组
-      if (fieldMeta.type !== FieldType.SingleSelect && fieldMeta.type !== FieldType.MultiSelect) {
-        return []
+      let fieldOptions: ISelectFieldOption[] = []
+
+      if (fieldMeta.type === FieldType.SingleSelect || fieldMeta.type === FieldType.MultiSelect) {
+        // 单选/多选字段：直接调用 getOptions()
+        fieldOptions = await (field as any).getOptions()
+      } else if (fieldMeta.type === FieldType.Formula) {
+        // 公式字段：尝试从 property.dataType 获取选项信息
+        // @ts-ignore - property 类型定义可能不完整
+        const dataType = fieldMeta.property?.dataType
+        if (dataType?.type === FieldType.SingleSelect && dataType?.property?.options) {
+          // 公式字段的单选选项存储在 property.dataType.property.options 中
+          fieldOptions = dataType.property.options as ISelectFieldOption[]
+        } else {
+          return { options: [], colorMap: {} }
+        }
+      } else {
+        return { options: [], colorMap: {} }
       }
 
-      // 使用 field.getOptions() 获取选项（按用户设定顺序返回）
-      const fieldOptions: ISelectFieldOption[] = await (field as any).getOptions()
-
       // 提取选项名称（保持顺序）
-      return fieldOptions.map((opt) => opt.name)
+      const optionNames = fieldOptions.map((opt) => opt.name)
+
+      // 构建选项名→飞书原生背景色的映射
+      const colorInfoList = await getColorInfoList()
+      const colorMap: Record<string, string> = {}
+      if (colorInfoList.length > 0) {
+        for (const opt of fieldOptions) {
+          const colorInfo = colorInfoList.find(c => c.id === opt.color)
+          if (colorInfo) {
+            colorMap[opt.name] = colorInfo.bgColor
+          }
+        }
+      }
+
+      return { options: optionNames, colorMap }
     } catch (err) {
       console.error(`获取字段选项失败 [table: ${tid}, field: ${fid}]:`, err)
       throw err
@@ -173,6 +224,7 @@ export const useFieldOptions = (
       // 参数验证
       if (!tableId || !fieldId) {
         setOptions([])
+        setOptionColorMap({})
         setError(null)
         setLoading(false)
         return
@@ -181,6 +233,7 @@ export const useFieldOptions = (
       // 如果未启用，清空选项但不获取新数据
       if (!enabled) {
         setOptions([])
+        setOptionColorMap({})
         setError(null)
         setLoading(false)
         return
@@ -190,9 +243,10 @@ export const useFieldOptions = (
 
       // 检查缓存是否有效
       if (isCacheValid(cacheKey)) {
-        const cachedOptions = getOptionsFromCache(cacheKey)
-        if (cachedOptions) {
-          setOptions(cachedOptions)
+        const cached = getOptionsFromCache(cacheKey)
+        if (cached) {
+          setOptions(cached.options)
+          setOptionColorMap(cached.optionColorMap)
           setLoading(false)
           setError(null)
           return
@@ -204,11 +258,12 @@ export const useFieldOptions = (
         setLoading(true)
         setError(null)
 
-        const opts = await fetchOptions(tableId, fieldId)
+        const result = await fetchOptions(tableId, fieldId)
 
         if (isMounted) {
-          setOptions(opts)
-          saveOptionsToCache(cacheKey, opts)
+          setOptions(result.options)
+          setOptionColorMap(result.colorMap)
+          saveOptionsToCache(cacheKey, result.options, result.colorMap)
           setLoading(false)
         }
       } catch (err) {
@@ -244,9 +299,10 @@ export const useFieldOptions = (
       setLoading(true)
       setError(null)
 
-      const opts = await fetchOptions(tableId, fieldId)
-      setOptions(opts)
-      saveOptionsToCache(cacheKey, opts)
+      const result = await fetchOptions(tableId, fieldId)
+      setOptions(result.options)
+      setOptionColorMap(result.colorMap)
+      saveOptionsToCache(cacheKey, result.options, result.colorMap)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -254,5 +310,5 @@ export const useFieldOptions = (
     }
   }
 
-  return { options, loading, error, refetch }
+  return { options, optionColorMap, loading, error, refetch }
 }

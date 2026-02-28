@@ -229,6 +229,7 @@ const processDateValue = (value: any): number | null => {
  * 支持的字段类型：
  * - 文本字段：直接返回文本
  * - 单选字段：提取 opt.text 或 opt.name
+ * - 公式字段（单选格式）：处理 { id, text } 对象或数组格式
  * - 其他字段：转换为字符串
  */
 const extractTextFromField = (value: any): string => {
@@ -236,16 +237,38 @@ const extractTextFromField = (value: any): string => {
     return ''
   }
 
-  // 对象格式（如单选字段）
+  // 字符串直接返回
+  if (typeof value === 'string') {
+    return value
+  }
+
+  // 数字直接转字符串
+  if (typeof value === 'number') {
+    return String(value)
+  }
+
+  // 对象格式（如单选字段、公式字段返回的单选值）
   if (typeof value === 'object') {
-    if (value.text !== undefined) {
+    // 数组格式：公式字段可能返回 [{ id, text }] 或 [{ id, name }]
+    if (Array.isArray(value)) {
+      if (value.length > 0) {
+        // 递归处理第一个元素
+        return extractTextFromField(value[0])
+      }
+      return ''
+    }
+
+    // 优先使用 text 属性（单选字段标准格式）
+    if (value.text !== undefined && value.text !== null && value.text !== '') {
       return String(value.text)
     }
-    if (value.name !== undefined) {
+    // 备选：使用 name 属性
+    if (value.name !== undefined && value.name !== null && value.name !== '') {
       return String(value.name)
     }
-    if (Array.isArray(value) && value.length > 0) {
-      return extractTextFromField(value[0])
+    // 备选：使用 value 属性（某些公式字段格式）
+    if (value.value !== undefined && value.value !== null && value.value !== '') {
+      return String(value.value)
     }
   }
 
@@ -319,6 +342,80 @@ export const useData3 = (
           records = recordResult
         } else if (recordResult && Array.isArray(recordResult.records)) {
           records = recordResult.records
+        }
+
+        // ===== 公式字段（单选格式）的选项 ID→名称翻译 =====
+        // 公式字段返回的单选值是纯选项 ID（如 "optmNOjBAY"），需要翻译为可读的选项名称
+        // 这里统一处理所有涉及的字段，避免在多个地方重复处理
+        const fieldsToCheck = [xField, yField, nameField, colorGroupField].filter(Boolean) as string[]
+        const selectFormulaIdToNameMaps: Record<string, Record<string, string>> = {}  // fieldId → { optionId → optionName }
+
+        for (const fieldId of fieldsToCheck) {
+          try {
+            const field = await table.getField(fieldId)
+            const fieldMeta = await field.getMeta()
+            // 检查是否为公式字段（type 值可能是数字或枚举）
+            const isFormula = fieldMeta.type === 20 || String(fieldMeta.type) === '20'
+            if (isFormula) {
+              // @ts-ignore - property 类型定义可能不完整
+              const dataType = fieldMeta.property?.dataType
+              // 检查公式字段是否为单选格式，且有选项列表
+              const isSingleSelect = dataType?.type === 3 || String(dataType?.type) === '3'
+              if (isSingleSelect && dataType?.property?.options) {
+                const optionIdToName: Record<string, string> = {}
+                for (const opt of dataType.property.options) {
+                  if (opt.id && opt.name) {
+                    optionIdToName[opt.id] = opt.name
+                  }
+                }
+                if (Object.keys(optionIdToName).length > 0) {
+                  selectFormulaIdToNameMaps[fieldId] = optionIdToName
+                  console.log(`[useData3] 检测到公式字段 ${fieldId} 为单选格式，已建立 ${Object.keys(optionIdToName).length} 个选项 ID→名称映射`)
+                }
+              }
+            }
+          } catch (err) {
+            // 字段元数据获取失败不影响主流程
+            console.warn(`[useData3] 获取字段 ${fieldId} 元数据失败:`, err)
+          }
+        }
+
+        // 如果存在公式-单选字段，预处理记录中的对应值（将选项 ID 替换为选项名称）
+        if (Object.keys(selectFormulaIdToNameMaps).length > 0) {
+          records = records.map(record => {
+            let needsUpdate = false
+            const newFields = { ...record.fields }
+
+            for (const [fieldId, idToNameMap] of Object.entries(selectFormulaIdToNameMaps)) {
+              const value = newFields[fieldId]
+              if (typeof value === 'string' && idToNameMap[value]) {
+                // 纯字符串 ID → 替换为 { text: 选项名称 } 格式
+                newFields[fieldId] = { text: idToNameMap[value] }
+                needsUpdate = true
+              } else if (typeof value === 'object' && value !== null) {
+                if (Array.isArray(value)) {
+                  // 数组格式 ["optXXX"] 或 [{ id: "optXXX" }]
+                  const translated = value.map((item: any) => {
+                    if (typeof item === 'string' && idToNameMap[item]) {
+                      return { text: idToNameMap[item] }
+                    }
+                    if (typeof item === 'object' && item?.id && !item?.text && idToNameMap[item.id]) {
+                      return { ...item, text: idToNameMap[item.id] }
+                    }
+                    return item
+                  })
+                  newFields[fieldId] = translated
+                  needsUpdate = true
+                } else if (value.id && !value.text && idToNameMap[value.id]) {
+                  // 对象格式 { id: "optXXX" }
+                  newFields[fieldId] = { ...value, text: idToNameMap[value.id] }
+                  needsUpdate = true
+                }
+              }
+            }
+
+            return needsUpdate ? { ...record, fields: newFields } : record
+          })
         }
 
         // ===== 多选字段拆分逻辑 =====

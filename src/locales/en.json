@@ -61,6 +61,7 @@
     },
     "tooltip": {
         "bubbleName": "If empty, all data is shown; if set, only data with this field non-empty is shown",
+        "colorGroup": "Grouped bubble colors are displayed based on the colors of single-select options in the data table",
         "openBase": "Go to this base",
         "basePermission": "Only supports selecting bases with editable or higher permissions in the current space. If advanced permissions are enabled, manage permissions are required"
     },
