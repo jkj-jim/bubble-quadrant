@@ -352,6 +352,17 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
   // chartInstanceRef: ECharts实例引用
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
 
+  // bubblePositionsRef: 缓存所有气泡的像素坐标和半径，用于 tooltip 雷达聚合
+  // 在 setOption 后预计算，ResizeObserver 时清空，formatter 中按需兜底重算
+  const bubblePositionsRef = useRef<Array<{
+    idx: number        // 全局索引（对应数据点 __idx）
+    pixelX: number     // 像素 X 坐标
+    pixelY: number     // 像素 Y 坐标
+    radius: number     // 像素半径（= symbolSizeFn(value) / 2）
+    sizeVal: number    // 原始 size 值（用于排序）
+    data: any          // 原始数据点引用（含 name, value, data 等字段）
+  }>>([])
+
   // 优化色板（9色）：4明4暗 + 灰，每个色相唯一，无同色系混淆
   const colorPalette = [
     '#3370FF', // 蔚蓝（暗）
@@ -605,6 +616,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         const { width, height } = entry.contentRect
         if (chartInstanceRef.current && width > 100 && height > 100) {
           chartInstanceRef.current.resize()
+          // 尺寸变化后像素坐标失效，清空缓存，下次 hover 时按需重算
+          bubblePositionsRef.current = []
         }
       }
     })
@@ -779,6 +792,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         // 使用原始文本作为显示值
         data: [xDisplay, yDisplay, item.size],
         colorGroupKey,  // 存储颜色分组 key
+        __idx: index,   // 全局索引，用于 tooltip 雷达聚合（多 series 模式下定位全局数据）
         itemStyle: {
           color: itemColor,
           opacity: chartStyles.bubble.opacity,
@@ -838,6 +852,96 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     const minSize = Math.min(...sizes)
     const maxSize = Math.max(...sizes)
 
+    // 气泡大小映射函数（size 值 → 像素直径）
+    // 提取到 option 构造之前，供 tooltip formatter 和预计算逻辑共用
+    const shouldUseDynamicSize = config.sizeMode === 'count' || !!sizeFieldName
+    const symbolSizeFn = (val: any): number => {
+      if (!shouldUseDynamicSize) {
+        return chartStyles.bubble.defaultSize
+      }
+      const sizeVal = val[2] as number
+      if (maxSize === minSize) {
+        return (chartStyles.bubble.minSize + chartStyles.bubble.maxSize) / 2
+      }
+      return chartStyles.bubble.minSize + (sizeVal - minSize) / (maxSize - minSize) * (chartStyles.bubble.maxSize - chartStyles.bubble.minSize)
+    }
+
+    // 格式化轴显示值（日期/百分比/原始值），供 tooltip formatter 中 hover 气泡和被包含气泡共用
+    const formatAxisValue = (
+      val: number | string,
+      axisType: string,
+      isPercentage: boolean,
+      hasTime: boolean
+    ): string => {
+      if (axisType === 'date' && typeof val === 'number') {
+        return formatDate(val, hasTime, true)
+      } else if (isPercentage && typeof val === 'number') {
+        return parseFloat((val * 100).toFixed(2)) + '%'
+      }
+      return String(val)
+    }
+
+    // 获取被指定气泡完全覆盖的其他气泡分组（按 size 降序，相同位置合并）
+    // 供 tooltip formatter 使用；click handler 中有相同逻辑的副本（因跨 useEffect 作用域）
+    // 判定：hoverRadius >= 圆心距离 + 小气泡半径（小气泡整个在大气泡内）
+    const getCoveredGroups = (hoveredIdx: number) => {
+      let positions = bubblePositionsRef.current
+      // 缓存为空时按需计算（兜底）
+      if (positions.length === 0 && chartInstanceRef.current) {
+        const chartForConvert = chartInstanceRef.current
+        positions = seriesData.map((item: any, index: number) => {
+          const [xVal, yVal, sizeVal] = item.value
+          const pixel = chartForConvert.convertToPixel(
+            { xAxisIndex: 0, yAxisIndex: 0 },
+            [Number(xVal), Number(yVal)]
+          )
+          const radius = symbolSizeFn(item.value) / 2
+          return { idx: index, pixelX: pixel[0], pixelY: pixel[1], radius, sizeVal, data: item }
+        })
+        bubblePositionsRef.current = positions
+      }
+      if (positions.length === 0) return []
+
+      const hovered = positions[hoveredIdx]
+      if (!hovered) return []
+
+      // 完全覆盖判定：distance + smallRadius <= hoverRadius
+      const contained = positions.filter(p => {
+        if (p.idx === hoveredIdx) return false
+        const dx = p.pixelX - hovered.pixelX
+        const dy = p.pixelY - hovered.pixelY
+        const distance = Math.sqrt(dx * dx + dy * dy)
+        return distance + p.radius <= hovered.radius
+      })
+
+      // 按 (x, y, size) 分组合并同位置气泡
+      const groupMap = new Map<string, { names: string[]; xDisplay: string; yDisplay: string; sizeDisplay: string; sizeVal: number }>()
+      for (const p of contained) {
+        const item = p.data
+        const rawX = item.data ? item.data[0] : item.value[0]
+        const rawY = item.data ? item.data[1] : item.value[1]
+        const rawS: number | string = item.data ? item.data[2] : item.value[2]
+
+        const px = formatAxisValue(rawX, xAxisType, xIsPercentage, xFieldHasTime)
+        const py = formatAxisValue(rawY, yAxisType, yIsPercentage, yFieldHasTime)
+        let ps = rawS
+        if (sizeIsPercentage && typeof ps === 'number' && config.sizeMode !== 'count') {
+          ps = parseFloat((ps * 100).toFixed(2)) + '%'
+        }
+        const psStr = String(ps)
+
+        const key = `${px}_${py}_${psStr}`
+        if (groupMap.has(key)) {
+          groupMap.get(key)!.names.push(item.name || '')
+        } else {
+          groupMap.set(key, { names: [item.name || ''], xDisplay: px, yDisplay: py, sizeDisplay: psStr, sizeVal: p.sizeVal })
+        }
+      }
+
+      // 按 size 降序
+      return Array.from(groupMap.values()).sort((a, b) => b.sizeVal - a.sizeVal)
+    }
+
     const option: EChartsOption = {
       backgroundColor: 'transparent',
       grid: chartStyles.grid,
@@ -866,59 +970,58 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       } : { show: false },
       tooltip: {//用于调整 hover 时的提示框
         trigger: 'item',
+        confine: true,           // tooltip 约束在图表容器内，不被外层 overflow:hidden 裁切
+        enterable: true,         // 允许鼠标进入 tooltip，以便滚动条可滚动
+        hideDelay: 300,          // 鼠标移出后 300ms 才隐藏，给用户时间移入 tooltip
+        padding: [8, 10],        // 统一 padding：上下 8px，左右 10px（紧凑）
+        extraCssText: 'max-width: 360px; max-height: 320px; overflow-y: auto; overflow-x: hidden;',
         formatter: (params: any) => {
-          const data = params.data
-          // 使用 data.data 获取原始显示值（避免类目轴显示索引）
-          let xDisplay = data.data ? data.data[0] : data.value[0]
-          let yDisplay = data.data ? data.data[1] : data.value[1]
-          let sizeDisplay: number | string = data.data ? data.data[2] : data.value[2]
-
-          // 格式化显示 - 日期轴处理
-          if (xAxisType === 'date' && typeof xDisplay === 'number') {
-            xDisplay = formatDate(xDisplay, xFieldHasTime, true)  // tooltip 显示完整日期
-          } else if (xIsPercentage && typeof xDisplay === 'number') {
-            xDisplay = parseFloat((xDisplay * 100).toFixed(2)) + '%'
-          }
-
-          if (yAxisType === 'date' && typeof yDisplay === 'number') {
-            yDisplay = formatDate(yDisplay, yFieldHasTime, true)  // tooltip 显示完整日期
-          } else if (yIsPercentage && typeof yDisplay === 'number') {
-            yDisplay = parseFloat((yDisplay * 100).toFixed(2)) + '%'
-          }
-
-          // 计数模式下 size 是整数，不需要百分比格式化
-          if (sizeIsPercentage && typeof sizeDisplay === 'number' && config.sizeMode !== 'count') {
-            sizeDisplay = parseFloat((sizeDisplay * 100).toFixed(2)) + '%'
-          }
+          const hoveredData = params.data
+          const hoveredIdx = hoveredData.__idx ?? params.dataIndex
 
           // 计数模式下，size 显示为"计数: N"
           const sizeLabel = config.sizeMode === 'count' ? t('label.count') : sizeFieldName
 
-          return `
-            <div style="padding: 8px;">
-              ${data.name ? `<div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>` : ''}
-              <div>${xFieldName || 'X'}: ${xDisplay}</div>
-              <div>${yFieldName || 'Y'}: ${yDisplay}</div>
-              ${sizeLabel ? `<div>${sizeLabel}: ${sizeDisplay}</div>` : ''}
-            </div>
-          `
+          // ===== 1. 格式化 hover 气泡信息（主体，立即显示）=====
+          let xDisplay = hoveredData.data ? hoveredData.data[0] : hoveredData.value[0]
+          let yDisplay = hoveredData.data ? hoveredData.data[1] : hoveredData.value[1]
+          let sizeDisplay: number | string = hoveredData.data ? hoveredData.data[2] : hoveredData.value[2]
+
+          xDisplay = formatAxisValue(xDisplay, xAxisType, xIsPercentage, xFieldHasTime)
+          yDisplay = formatAxisValue(yDisplay, yAxisType, yIsPercentage, yFieldHasTime)
+          if (sizeIsPercentage && typeof sizeDisplay === 'number' && config.sizeMode !== 'count') {
+            sizeDisplay = parseFloat((sizeDisplay * 100).toFixed(2)) + '%'
+          }
+
+          // 主体（无内联 padding，由 tooltip 配置统一控制）
+          let html = `${hoveredData.name ? `<div style="font-weight: bold; margin-bottom: 4px;">${hoveredData.name}</div>` : ''}
+            <div>${xFieldName || 'X'}: ${xDisplay}</div>
+            <div>${yFieldName || 'Y'}: ${yDisplay}</div>
+            ${sizeLabel ? `<div>${sizeLabel}: ${sizeDisplay}</div>` : ''}`
+
+          // ===== 2. 雷达探测（调用共享函数，完全覆盖判定）=====
+          const groups = getCoveredGroups(hoveredIdx)
+          if (groups.length === 0) return html
+
+          // ===== 3. 拼接覆盖气泡列表 HTML =====
+          html += `<div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 6px 0;"></div>`
+          html += `<div style="font-size: 11px; opacity: 0.7; margin-bottom: 4px;">覆盖的气泡 (${groups.length})</div>`
+          for (const g of groups) {
+            const nameStr = g.names.filter(n => n).join(', ')
+            html += `<div style="margin-bottom: 4px;">
+              ${nameStr ? `<div style="font-weight: 500;">${nameStr}</div>` : ''}
+              <div style="font-size: 11px; opacity: 0.85;">
+                ${xFieldName || 'X'}: ${g.xDisplay}&nbsp;&nbsp;${yFieldName || 'Y'}: ${g.yDisplay}&nbsp;&nbsp;${sizeLabel}: ${g.sizeDisplay}
+              </div>
+            </div>`
+          }
+
+          return html
         }
       },
       series: (() => {
         // 公共的 series 配置
-        // 计数模式或有 sizeFieldName 时，根据 size 值动态计算气泡大小
-        const shouldUseDynamicSize = config.sizeMode === 'count' || !!sizeFieldName
-        const symbolSizeFn = (val: any) => {
-          if (!shouldUseDynamicSize) {
-            return chartStyles.bubble.defaultSize
-          }
-          const sizeVal = val[2] as number
-          if (maxSize === minSize) {
-            return (chartStyles.bubble.minSize + chartStyles.bubble.maxSize) / 2
-          }
-          const size = chartStyles.bubble.minSize + (sizeVal - minSize) / (maxSize - minSize) * (chartStyles.bubble.maxSize - chartStyles.bubble.minSize)
-          return size
-        }
+        // shouldUseDynamicSize 和 symbolSizeFn 已提取到 option 构造之前，此处直接引用
 
         const labelConfig = {
           show: !!nameFieldName && !!showLabel,
@@ -1088,6 +1191,24 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     } catch (e) {
       console.error('[BubbleChart] setOption 错误', e)
     }
+
+    // ===== 预计算所有气泡的像素坐标和半径，供 tooltip 雷达聚合使用 =====
+    // convertToPixel 需要图表完成布局后才能正确转换，用 setTimeout 延迟到布局完成后执行
+    // formatter 中有按需兜底重算逻辑，即使此处的 setTimeout 尚未执行也不会出错
+    setTimeout(() => {
+      const chartForConvert = chartInstanceRef.current
+      if (!chartForConvert) return
+      const positions = seriesData.map((item: any, index: number) => {
+        const [xVal, yVal, sizeVal] = item.value
+        const pixel = chartForConvert.convertToPixel(
+          { xAxisIndex: 0, yAxisIndex: 0 },
+          [Number(xVal), Number(yVal)]
+        )
+        const radius = symbolSizeFn(item.value) / 2
+        return { idx: index, pixelX: pixel[0], pixelY: pixel[1], radius, sizeVal, data: item }
+      })
+      bubblePositionsRef.current = positions
+    }, 0)
 
     // ===== 计算象限 label 的像素位置 =====
     // 使用 ECharts 的 grid 区域边界来计算 label 位置
@@ -1641,45 +1762,109 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       }
     }
 
-    // 点击气泡复制详情信息
+    // 点击气泡复制详情信息（复制完整 tooltip 内容：主气泡 + 覆盖气泡列表）
     const handleBubbleClick = (params: any) => {
       if (params.componentType === 'series' && params.seriesType === 'scatter') {
         const data = params.data
         if (!data) return
+        const hoveredIdx = data.__idx ?? params.dataIndex
+        const sizeLabel = config.sizeMode === 'count' ? t('label.count') : sizeFieldName
 
-        // 获取显示值
+        // 格式化主气泡显示值（与 tooltip formatter 一致）
         let xDisplay = data.data ? data.data[0] : data.value[0]
         let yDisplay = data.data ? data.data[1] : data.value[1]
         let sizeDisplay: number | string = data.data ? data.data[2] : data.value[2]
 
-        // 格式化百分比显示
-        if (xIsPercentage && typeof xDisplay === 'number') {
-          xDisplay = parseFloat((xDisplay * 100).toFixed(2)) + '%'
-        }
-        if (yIsPercentage && typeof yDisplay === 'number') {
-          yDisplay = parseFloat((yDisplay * 100).toFixed(2)) + '%'
-        }
-        if (sizeIsPercentage && typeof sizeDisplay === 'number') {
-          sizeDisplay = parseFloat((sizeDisplay * 100).toFixed(2)) + '%'
-        }
-
-        // 格式化日期显示（将时间戳转为可读日期）
+        // 日期/百分比格式化（内联实现，因 formatAxisValue 在主渲染 useEffect 作用域内不可访问）
         if (xAxisType === 'date' && typeof xDisplay === 'number') {
           xDisplay = formatDate(xDisplay, xFieldHasTime, true)
+        } else if (xIsPercentage && typeof xDisplay === 'number') {
+          xDisplay = parseFloat((xDisplay * 100).toFixed(2)) + '%'
         }
         if (yAxisType === 'date' && typeof yDisplay === 'number') {
           yDisplay = formatDate(yDisplay, yFieldHasTime, true)
+        } else if (yIsPercentage && typeof yDisplay === 'number') {
+          yDisplay = parseFloat((yDisplay * 100).toFixed(2)) + '%'
+        }
+        if (sizeIsPercentage && typeof sizeDisplay === 'number' && config.sizeMode !== 'count') {
+          sizeDisplay = parseFloat((sizeDisplay * 100).toFixed(2)) + '%'
         }
 
-        // 构建复制文本
+        // 构建复制文本（主气泡）
         let copyText = ''
         if (data.name) {
           copyText += `${data.name}\n`
         }
         copyText += `${xFieldName || 'X'}: ${xDisplay}`
         copyText += `\n${yFieldName || 'Y'}: ${yDisplay}`
-        if (sizeFieldName) {
-          copyText += `\n${sizeFieldName}: ${sizeDisplay}`
+        if (sizeLabel) {
+          copyText += `\n${sizeLabel}: ${sizeDisplay}`
+        }
+
+        // 追加覆盖气泡列表（与 tooltip 内容一致）
+        // 覆盖判定 + 分组逻辑与主渲染 useEffect 中的 getCoveredGroups 相同
+        // 此处因跨 useEffect 作用域无法直接调用 getCoveredGroups，故复制逻辑
+        const positions = bubblePositionsRef.current
+        if (positions.length > 0 && positions[hoveredIdx]) {
+          const hovered = positions[hoveredIdx]
+          // 完全覆盖判定：distance + smallRadius <= hoverRadius
+          const contained = positions.filter(p => {
+            if (p.idx === hoveredIdx) return false
+            const dx = p.pixelX - hovered.pixelX
+            const dy = p.pixelY - hovered.pixelY
+            const distance = Math.sqrt(dx * dx + dy * dy)
+            return distance + p.radius <= hovered.radius
+          })
+
+          if (contained.length > 0) {
+            // 按 (x, y, size) 分组合并同位置气泡
+            const groupMap = new Map<string, { names: string[]; xDisplay: string; yDisplay: string; sizeDisplay: string; sizeVal: number }>()
+            for (const p of contained) {
+              const item = p.data
+              const rawX = item.data ? item.data[0] : item.value[0]
+              const rawY = item.data ? item.data[1] : item.value[1]
+              const rawS: number | string = item.data ? item.data[2] : item.value[2]
+
+              // 格式化（内联，同主气泡逻辑）
+              let px: string
+              if (xAxisType === 'date' && typeof rawX === 'number') {
+                px = formatDate(rawX, xFieldHasTime, true)
+              } else if (xIsPercentage && typeof rawX === 'number') {
+                px = parseFloat((rawX * 100).toFixed(2)) + '%'
+              } else {
+                px = String(rawX)
+              }
+              let py: string
+              if (yAxisType === 'date' && typeof rawY === 'number') {
+                py = formatDate(rawY, yFieldHasTime, true)
+              } else if (yIsPercentage && typeof rawY === 'number') {
+                py = parseFloat((rawY * 100).toFixed(2)) + '%'
+              } else {
+                py = String(rawY)
+              }
+              let ps = rawS
+              if (sizeIsPercentage && typeof ps === 'number' && config.sizeMode !== 'count') {
+                ps = parseFloat((ps * 100).toFixed(2)) + '%'
+              }
+              const psStr = String(ps)
+
+              const key = `${px}_${py}_${psStr}`
+              if (groupMap.has(key)) {
+                groupMap.get(key)!.names.push(item.name || '')
+              } else {
+                groupMap.set(key, { names: [item.name || ''], xDisplay: px, yDisplay: py, sizeDisplay: psStr, sizeVal: p.sizeVal })
+              }
+            }
+
+            // 按 size 降序
+            const groups = Array.from(groupMap.values()).sort((a, b) => b.sizeVal - a.sizeVal)
+
+            copyText += `\n\n覆盖的气泡 (${groups.length})`
+            for (const g of groups) {
+              const nameStr = g.names.filter(n => n).join(', ')
+              copyText += `\n${nameStr ? nameStr + ' | ' : ''}${xFieldName || 'X'}: ${g.xDisplay}, ${yFieldName || 'Y'}: ${g.yDisplay}, ${sizeLabel}: ${g.sizeDisplay}`
+            }
+          }
         }
 
         copyToClipboard(copyText).then(() => {
