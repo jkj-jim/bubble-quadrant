@@ -96,6 +96,58 @@ const formatDate = (timestamp: number, hasTime: boolean, forTooltip: boolean = f
   return `${month}.${day}`
 }
 
+/**
+ * ECharts axisLabel 默认 fontSize 12px，中文字符宽度约等于字号
+ * 用于估算最长类目标签的像素宽度
+ */
+const ESTIMATED_CHAR_WIDTH = 12
+
+/**
+ * 复用的离屏 canvas，用于精确量测刻度标签的像素宽度
+ * 比"字符数 × 字宽"更准确（兼顾中文、数字、英文、标点的不同宽度）
+ */
+let measureCanvas: HTMLCanvasElement | null = null
+const measureTextWidth = (text: string, font: string): number => {
+  if (!measureCanvas) measureCanvas = document.createElement('canvas')
+  const ctx = measureCanvas.getContext('2d')
+  if (!ctx) return text.length * ESTIMATED_CHAR_WIDTH  // 量测失败时退化为字符数估算
+  ctx.font = font
+  return ctx.measureText(text).width
+}
+
+/**
+ * 根据"每个刻度的可用宽度"和"最长标签宽度"，计算横轴标签的旋转角度
+ *
+ * 核心原则：全程不截断、不隐藏，靠"最小必要旋转角"让标签彼此不重叠；
+ * 只有当旋转到 90°（纵排）仍放不下时，才交给 hideOverlap 隐藏部分标签。
+ *
+ * 几何依据：一段长 L、行高 h 的文本旋转 θ 后，其水平投影宽度约为
+ *   footprint(θ) = L·cosθ + h·sinθ
+ * 只要 footprint(θ) ≤ 单刻度可用宽度 avgWidth，相邻标签就不会重叠。
+ * 从 0° 逐度增大，取第一个满足条件的角度即为"最小必要旋转角"，可读性最佳。
+ *
+ * @param avgWidth     单个刻度可用的水平像素宽度（= grid 宽度 / 刻度数）
+ * @param labelPx      最长标签的像素宽度
+ * @param lineHeight   标签行高（旋转后纵向占据的水平投影厚度）
+ * @returns rotate 旋转角度；hideOverlap 是否需要隐藏重叠（仅 90° 仍放不下时为 true）
+ */
+const computeRotateForFit = (
+  avgWidth: number,
+  labelPx: number,
+  lineHeight: number
+): { rotate: number; hideOverlap: boolean } => {
+  // 横排即可完整放下 → 不旋转
+  if (labelPx <= avgWidth) return { rotate: 0, hideOverlap: false }
+  // 从 1° 起逐度寻找能容纳的最小旋转角（步进 1°，缩放时过渡顺滑）
+  for (let deg = 1; deg <= 90; deg++) {
+    const rad = (deg * Math.PI) / 180
+    const footprint = labelPx * Math.cos(rad) + lineHeight * Math.sin(rad)
+    if (footprint <= avgWidth) return { rotate: deg, hideOverlap: false }
+  }
+  // 即便 90° 纵排也放不下（avgWidth < 行高）→ 纵排 + 隐藏重叠兜底
+  return { rotate: 90, hideOverlap: true }
+}
+
 // 统一的图表样式配置
 // 使用 Semi UI 的 CSS 变量名，支持暗黑模式自动切换
 const CHART_STYLE_CONFIG = {
@@ -497,6 +549,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     mapper?: ReturnType<typeof useCategoryAxisMapper>  // 类目轴映射器
     otherAxisIsCategory?: boolean  // 另一个轴是否是类目轴
     hasTime?: boolean  // 日期轴是否包含时间
+    isHorizontal?: boolean  // 是否为横轴：影响 overflow/rotate 策略
   }) => {
     // 基础配置（两种轴类型共用）
     const baseConfig = {
@@ -531,15 +584,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       const mapperConfig = axisConfig.mapper.getAxisConfig()
       // 原始 formatter 将索引转换为类目文本
       const originalFormatter = mapperConfig.axisLabel.formatter
-      // 包装 formatter：先转换为文本，再截断超长文本
-      const truncatedFormatter = (value: number) => {
-        const text = originalFormatter(value)
-        const maxLen = 6  // 最大显示字符数
-        if (typeof text === 'string' && text.length > maxLen) {
-          return text.slice(0, maxLen - 1) + '...'
-        }
-        return text
-      }
+      const isHorizontal = axisConfig.isHorizontal ?? false
       return {
         ...baseConfig,
         type: 'value' as const,  // 关键：使用数值轴
@@ -548,8 +593,26 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         splitNumber: mapperConfig.splitNumber,
         axisLabel: {
           color: chartStyles.colors.axisLabel,
-          // 使用截断 formatter，防止超长文本压缩图表
-          formatter: truncatedFormatter
+          formatter: originalFormatter,
+          ...(isHorizontal
+            ? {
+                // 横轴：rotate / hideOverlap 由 updateXAxisLabelLayout 在布局后按真实宽度动态计算
+                // 这里仅给初始占位值；width 999 表示不截断，hideOverlap 先关闭等待动态计算
+                // （横轴只在旋转到 90° 仍放不下时才隐藏，避免旋转途中误隐藏）
+                interval: 'auto',
+                overflow: 'truncate',
+                width: 999,
+                rotate: 0,
+                hideOverlap: false
+              }
+            : {
+                // 纵轴：超宽自动换行，刻度稀疏时可多行展示完整文本；开启 hideOverlap 兜底
+                overflow: 'break',
+                width: 60,
+                lineHeight: 14,
+                hideOverlap: true
+              }
+          )
         },
         // 禁用 scale，使用固定的 min/max
         scale: false
@@ -571,6 +634,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         max: (value: any) => value.max + (hasTime ? 43200000 : 86400000),
         axisLabel: {
           color: chartStyles.colors.axisLabel,
+          hideOverlap: true,
           formatter: (value: any) => {
             if (typeof value === 'number') {
               return formatDate(value, hasTime, false)
@@ -586,6 +650,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       type: 'value' as const,
       axisLabel: {
         color: chartStyles.colors.axisLabel,
+        hideOverlap: true,
         formatter: (value: any) => {
           if (axisConfig.isPercentage && typeof value === 'number') {
             return parseFloat((value * 100).toFixed(2)) + '%'
@@ -595,6 +660,90 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       }
     }
   }
+
+  /**
+   * 依据布局完成后真实的 grid 宽度与实际渲染的刻度标签，动态计算横轴标签的旋转角度
+   *
+   * 统一处理数值轴 / 日期轴 / 类目轴：通过 ECharts 的 getViewLabels() 读取真实标签，
+   * 用离屏 canvas 量测最长标签宽度，再结合 grid 实际像素宽度算出"最小必要旋转角"。
+   * 这样既修复了"数值轴/日期轴横轴从不旋转"，也避免了不同轴类型各写一套估算逻辑。
+   *
+   * 仅在 rotate / hideOverlap 真正变化时才 setOption，避免无谓重绘。
+   * 仅修改 xAxis[0]，不触碰 yAxis 与其它组件。
+   *
+   * @returns 布局是否已就绪并完成计算（false 表示坐标系/刻度尚未就绪，需由调用方重试）
+   */
+  const updateXAxisLabelLayout = useCallback((): boolean => {
+    const chart = chartInstanceRef.current
+    if (!chart) return false
+    try {
+      const ecModel = (chart as any).getModel()
+      const xAxisModel = ecModel.getComponent('xAxis', 0)
+      const axis = xAxisModel?.axis
+      if (!axis || !xAxisModel) return false
+
+      // 实际将要绘制的刻度标签（已考虑 interval，但尚未做 hideOverlap 裁剪）
+      const viewLabels = (axis.getViewLabels?.() || []) as Array<{ formattedLabel?: string }>
+      const labelTexts = viewLabels
+        .map(l => (l.formattedLabel ?? '').trim())
+        .filter(s => s.length > 0)
+      const tickCount = labelTexts.length
+
+      // grid 实际像素宽度（真实可用区，比"容器宽度 × 经验系数"更准确）
+      const gridRect = ecModel.getComponent('grid')?.coordinateSystem?.getRect()
+      const gridWidth = gridRect?.width ?? 0
+
+      // 布局尚未就绪（拿不到 grid 宽度或刻度还没生成）→ 返回 false，交给调用方逐帧重试
+      // 这是修复"冷刷新后不旋转"的关键：首屏同步阶段坐标系常常还没建好
+      if (gridWidth <= 0 || tickCount === 0) return false
+
+      // 当前横轴标签配置：用于"无变化则跳过"
+      const labelModel = xAxisModel.getModel('axisLabel')
+      const curRotate = labelModel.get('rotate') ?? 0
+      const curHide = labelModel.get('hideOverlap') ?? false
+      const applyXLabel = (rotate: number, hideOverlap: boolean) => {
+        if (curRotate === rotate && curHide === hideOverlap) return
+        chart.setOption({ xAxis: [{ axisLabel: { rotate, hideOverlap, width: 999 } }] })
+      }
+
+      // 只有 1 个标签不可能重叠 → 恢复横排
+      if (tickCount === 1) {
+        applyXLabel(0, false)
+        return true
+      }
+
+      // 用真实字体量测最长标签像素宽度
+      const fontSize = Number(labelModel.get('fontSize')) || CHART_STYLE_CONFIG.label.fontSize
+      const fontFamily = labelModel.get('fontFamily') || 'sans-serif'
+      const font = `${fontSize}px ${fontFamily}`
+      let maxLabelPx = 0
+      for (const text of labelTexts) {
+        maxLabelPx = Math.max(maxLabelPx, measureTextWidth(text, font))
+      }
+
+      const avgWidth = gridWidth / tickCount   // 单刻度可用宽度
+      const lineHeight = fontSize * 1.2        // 旋转后纵向占据的水平投影厚度
+      const { rotate, hideOverlap } = computeRotateForFit(avgWidth, maxLabelPx, lineHeight)
+      applyXLabel(rotate, hideOverlap)
+      return true
+    } catch {
+      // getViewLabels / grid 模型属于 ECharts 内部能力，异常时视为未就绪，交给调用方重试
+      return false
+    }
+  }, [])
+
+  /**
+   * ECharts 'finished' 事件回调：在每次"渲染完全结束"后重算横轴旋转。
+   *
+   * 这是修复"冷刷新后不旋转"的关键：'finished' 保证此刻 grid 矩形是最终值
+   * （已完成 containLabel 等布局调整），不会像 setTimeout/rAF 那样取到首屏过渡态的
+   * 过大 grid 宽度而误判为"无需旋转"。每次渲染都会触发，配合 updateXAxisLabelLayout
+   * 内部的"无变化则跳过"，会自然收敛到正确角度后停止 setOption（X 轴旋转不改变 grid
+   * 宽度，因此计算稳定、不会来回抖动）。
+   */
+  const handleChartFinished = useCallback(() => {
+    updateXAxisLabelLayout()
+  }, [updateXAxisLabelLayout])
 
   useEffect(() => {
     return () => {
@@ -615,7 +764,10 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       for (const entry of entries) {
         const { width, height } = entry.contentRect
         if (chartInstanceRef.current && width > 100 && height > 100) {
+          // 先按新尺寸重新布局，再依据真实 grid 宽度与刻度标签重算横轴旋转角
+          // resize() 本身会触发 'finished' 兜底，这里直接同步算一次以求即时响应
           chartInstanceRef.current.resize()
+          updateXAxisLabelLayout()
           // 尺寸变化后像素坐标失效，清空缓存，下次 hover 时按需重算
           bubblePositionsRef.current = []
         }
@@ -627,7 +779,7 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     return () => {
       resizeObserver.disconnect()
     }
-  }, [])
+  }, [updateXAxisLabelLayout])
 
   useEffect(() => {
     // loading 状态或无数据时，跳过渲染
@@ -650,6 +802,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       }
       if (chartRef.current) {
         chartInstanceRef.current = echarts.init(chartRef.current)
+        // 每个实例只注册一次：渲染完全结束后重算横轴旋转（冷刷新关键兜底）
+        chartInstanceRef.current.on('finished', handleChartFinished)
       } else {
         return
       }
@@ -666,7 +820,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       isPercentage: xIsPercentage,
       mapper: xAxisType === 'category' ? xAxisMapper : undefined,
       otherAxisIsCategory: yAxisType === 'category',  // Y轴是类目轴时，X轴显示在边缘
-      hasTime: xFieldHasTime  // 日期轴是否显示时间
+      hasTime: xFieldHasTime,  // 日期轴是否显示时间
+      isHorizontal: true
     }) as any
 
     const yAxis = createAxisConfig({
@@ -676,7 +831,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       isPercentage: yIsPercentage,
       mapper: yAxisType === 'category' ? yAxisMapper : undefined,
       otherAxisIsCategory: xAxisType === 'category',  // X轴是类目轴时，Y轴显示在边缘
-      hasTime: yFieldHasTime  // 日期轴是否显示时间
+      hasTime: yFieldHasTime,  // 日期轴是否显示时间
+      isHorizontal: false
     }) as any
 
     // ===== 轴范围限制：数值轴和日期轴生效 =====
@@ -696,6 +852,30 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       }
       if (config.yAxisMax !== undefined && config.yAxisMax !== '') {
         yAxis.max = yAxisType === 'date' ? Number(config.yAxisMax) : parseFloat(config.yAxisMax)
+      }
+    }
+
+    // ===== 横轴类目轴：把旋转角度"焼き込み"进首个 option（冷刷新关键）=====
+    // ECharts 官方建议：rotate 应写入初始 option，而非渲染后再 late-merge setOption
+    // （late-merge 在首屏会出现"转了但被隐藏的标签不恢复/根本不转"的问题，见 issue #9723）。
+    // 类目轴的标签文本（xAxisData）此刻同步可得，容器 clientWidth 也同步可得，
+    // 因此能在首次渲染前就算出正确角度，冷刷新即生效；之后再由 'finished' 事件按真实 grid 精修。
+    if (xAxisType === 'category' && xAxisData && xAxisData.length > 0 && xAxis.axisLabel) {
+      const containerWidth = chartRef.current?.clientWidth ?? 0
+      if (containerWidth > 0) {
+        const fontSize = CHART_STYLE_CONFIG.label.fontSize
+        const font = `${fontSize}px sans-serif`
+        let maxLabelPx = 0
+        for (const s of xAxisData) {
+          maxLabelPx = Math.max(maxLabelPx, measureTextWidth(String(s ?? ''), font))
+        }
+        // 估算 grid 绘图区宽度：扣除左右内边距(20+60)与纵轴标签占用(约45px)，并设下限
+        const plotWidth = Math.max(containerWidth - 125, containerWidth * 0.5)
+        const avgWidth = plotWidth / xAxisData.length
+        const { rotate, hideOverlap } = computeRotateForFit(avgWidth, maxLabelPx, fontSize * 1.2)
+        xAxis.axisLabel.rotate = rotate
+        xAxis.axisLabel.hideOverlap = hideOverlap
+        xAxis.axisLabel.width = 999
       }
     }
 
@@ -870,11 +1050,11 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     const formatAxisValue = (
       val: number | string,
       axisType: string,
-      isPercentage: boolean,
-      hasTime: boolean
+      isPercentage: boolean | undefined,
+      hasTime: boolean | undefined
     ): string => {
       if (axisType === 'date' && typeof val === 'number') {
-        return formatDate(val, hasTime, true)
+        return formatDate(val, !!hasTime, true)
       } else if (isPercentage && typeof val === 'number') {
         return parseFloat((val * 100).toFixed(2)) + '%'
       }
@@ -1188,6 +1368,9 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       chartInstanceRef.current.setOption(option, { notMerge: true })
       // 强制 resize 确保图表正确渲染
       chartInstanceRef.current.resize()
+      // 热路径：图表已就绪时同步精修一次（数值/日期/类目轴通用，按真实 grid 宽度）
+      // 冷刷新首屏坐标系未就绪时此处返回 false，由实例上注册的 'finished' 事件兜底
+      updateXAxisLabelLayout()
     } catch (e) {
       console.error('[BubbleChart] setOption 错误', e)
     }
@@ -1312,8 +1495,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     const { xVals, yVals } = getThresholdValues()
 
     if (xVals.length === 0 && yVals.length === 0) {
-      option.graphic = []
-      chart.setOption(option, { replaceMerge: ['graphic'] })
+      // 仅替换 graphic 组件，避免连带覆盖 updateXAxisLabelLayout 动态设置的横轴旋转
+      chart.setOption({ graphic: [] }, { replaceMerge: ['graphic'] })
       return
     }
 
@@ -1323,8 +1506,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
 
     if (!gridRect) {
       console.warn('无法获取 ECharts grid 信息')
-      option.graphic = []
-      chart.setOption(option, { replaceMerge: ['graphic'] })
+      // 仅替换 graphic 组件，避免连带覆盖 updateXAxisLabelLayout 动态设置的横轴旋转
+      chart.setOption({ graphic: [] }, { replaceMerge: ['graphic'] })
       return
     }
 
@@ -1442,9 +1625,8 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     }
 
 
-    // Apply Graphic
-    option.graphic = graphicElements
-    chartInstanceRef.current.setOption(option, { replaceMerge: ['graphic'] })
+    // Apply Graphic（仅替换 graphic 组件，避免覆盖 updateXAxisLabelLayout 的动态横轴旋转配置）
+    chartInstanceRef.current.setOption({ graphic: graphicElements }, { replaceMerge: ['graphic'] })
 
   }, [data, xFieldName, yFieldName, sizeFieldName, loading, xAxisType, yAxisType, xAxisData, yAxisData, xIsPercentage, yIsPercentage, sizeIsPercentage, enableMultiColor, t, chartStyles, config, getThresholdValues, hoveredQuadrant])
 
