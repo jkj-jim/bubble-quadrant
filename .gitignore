@@ -24,7 +24,6 @@ node_modules
 *.sw?
 
 .claude/*
-claude.md
 backup/*
 飞书官方项目示例/*
 已上架应用插件/*
@@ -32,6 +31,7 @@ backup/*
 # 下面的文件在开发模式时进行注释，提交的时候取消注释
 .gemini/*
 .agent/*
+claude.md
 飞书官方资料/*
 FEISHU_DASHBOARD_TIPS.md
 PROJECT_LOG.md

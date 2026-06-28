@@ -1237,6 +1237,7 @@ function App() {
                         placeholder={t('placeholder.selectField')}
                         style={{ width: '100%' }}
                         loading={fieldsLoading}
+                        filter
                       >
                         {getCombinedFieldsWithType(config.yFieldIsMultiSelect === true).map(field => (
                           <Select.Option key={field.id} value={field.id}>
@@ -1349,6 +1350,7 @@ function App() {
                         placeholder={t('placeholder.selectField')}
                         style={{ width: '100%' }}
                         loading={fieldsLoading}
+                        filter
                       >
                         {getCombinedFieldsWithType(config.xFieldIsMultiSelect === true).map(field => (
                           <Select.Option key={field.id} value={field.id}>

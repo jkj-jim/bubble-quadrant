@@ -1154,7 +1154,9 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
         enterable: true,         // 允许鼠标进入 tooltip，以便滚动条可滚动
         hideDelay: 300,          // 鼠标移出后 300ms 才隐藏，给用户时间移入 tooltip
         padding: [8, 10],        // 统一 padding：上下 8px，左右 10px（紧凑）
-        extraCssText: 'max-width: 360px; max-height: 320px; overflow-y: auto; overflow-x: hidden;',
+        // white-space: normal + word-break/overflow-wrap：内容超过 max-width 时自动换行，
+        // 避免长文本（如较长的字段名/选项值）溢出到 tooltip 外部被裁切看不到
+        extraCssText: 'max-width: 360px; max-height: 320px; overflow-y: auto; overflow-x: hidden; white-space: normal; word-break: break-word; overflow-wrap: anywhere;',
         formatter: (params: any) => {
           const hoveredData = params.data
           const hoveredIdx = hoveredData.__idx ?? params.dataIndex
@@ -1191,7 +1193,9 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
             html += `<div style="margin-bottom: 4px;">
               ${nameStr ? `<div style="font-weight: 500;">${nameStr}</div>` : ''}
               <div style="font-size: 11px; opacity: 0.85;">
-                ${xFieldName || 'X'}: ${g.xDisplay}&nbsp;&nbsp;${yFieldName || 'Y'}: ${g.yDisplay}&nbsp;&nbsp;${sizeLabel}: ${g.sizeDisplay}
+                <span style="margin-right: 8px;">${xFieldName || 'X'}: ${g.xDisplay}</span>
+                <span style="margin-right: 8px;">${yFieldName || 'Y'}: ${g.yDisplay}</span>
+                <span>${sizeLabel}: ${g.sizeDisplay}</span>
               </div>
             </div>`
           }
