@@ -25,7 +25,8 @@ import type { EChartsOption } from 'echarts'
 import type { DataItem } from '../hooks/useDashboard'
 import type { BubbleChartConfig } from '../hooks/useDashboard'
 import { useCategoryAxisMapper } from '../hooks/useCategoryAxisMapper'
-import { Empty, Toast } from '@douyinfe/semi-ui'
+import { Empty, Toast, Input } from '@douyinfe/semi-ui'
+import { IconSearch } from '@douyinfe/semi-icons'
 
 /**
  * BubbleChartProps - 气泡图组件属性
@@ -414,6 +415,12 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     sizeVal: number    // 原始 size 值（用于排序）
     data: any          // 原始数据点引用（含 name, value, data 等字段）
   }>>([])
+
+  // ===== 图例搜索（颜色分组项很多时，按关键字快速定位）=====
+  // legendSearch: 搜索关键字；legendDataRef/groupNamesRef: 缓存完整图例数据供筛选复用
+  const [legendSearch, setLegendSearch] = useState('')
+  const legendDataRef = useRef<Array<{ name: string; itemStyle: { color: string; opacity: number } }>>([])
+  const groupNamesRef = useRef<string[]>([])
 
   // 优化色板（9色）：4明4暗 + 灰，每个色相唯一，无同色系混淆
   const colorPalette = [
@@ -1122,28 +1129,36 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
       return Array.from(groupMap.values()).sort((a, b) => b.sizeVal - a.sizeVal)
     }
 
+    // ===== 图例数据：提取出来供「图例搜索」筛选与高亮复用 =====
+    const legendData = config.colorGroupType && colorGroupMap.size > 0
+      ? Array.from(colorGroupMap.entries()).map(([key, info]) => ({
+          name: key,
+          itemStyle: {
+            color: info.color,
+            opacity: info.isNativeColor ? chartStyles.bubble.nativeColorOpacity : chartStyles.bubble.opacity
+          }
+        }))
+      : []
+    legendDataRef.current = legendData
+    groupNamesRef.current = legendData.map(d => d.name)
+
     const option: EChartsOption = {
       backgroundColor: 'transparent',
       grid: chartStyles.grid,
       xAxis,
       yAxis,
       // 图例配置：仅在开启颜色分组时显示
-      // 图例配置：仅在开启颜色分组时显示
-      legend: config.colorGroupType && colorGroupMap.size > 0 ? {
+      legend: legendData.length > 0 ? {
         show: true,
         type: 'scroll',
         orient: 'horizontal',
         top: 12,
-        left: 'center',
+        // 搜索框在左上角（已右移避开纵轴标题），图例从其右侧开始；翻页器在图例最右端，互不重叠
+        left: 260,
+        right: 12,
         // 不使用 selectedMode: false，因为会禁用 hover 效果
         // 改用事件监听 legendselectchanged 来阻止隐藏数据
-        data: Array.from(colorGroupMap.entries()).map(([key, info]) => ({
-          name: key,
-          itemStyle: {
-            color: info.color,
-            opacity: info.isNativeColor ? chartStyles.bubble.nativeColorOpacity : chartStyles.bubble.opacity
-          }
-        })),
+        data: legendData,
         textStyle: {
           color: chartStyles.colors.axisLabel
         }
@@ -1645,6 +1660,36 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+  // ===== 图例搜索：按关键字筛选图例 + 高亮匹配分组的气泡 =====
+  // 声明在主渲染 effect 之后，确保数据变化重渲染后能再次套用当前搜索条件
+  useEffect(() => {
+    const chart = chartInstanceRef.current
+    if (!chart) return
+    const allLegend = legendDataRef.current
+    // 仅在开启颜色分组且有分组项时生效
+    if (!config.colorGroupType || allLegend.length === 0) return
+
+    const q = legendSearch.trim().toLowerCase()
+    const matches = q
+      ? groupNamesRef.current.filter(n => n.toLowerCase().includes(q))
+      : groupNamesRef.current
+
+    // 1) 筛选图例：只保留匹配的图例项，便于在众多分组中快速定位
+    chart.setOption({
+      legend: { data: q ? allLegend.filter(d => matches.includes(d.name)) : allLegend }
+    })
+
+    // 2) 高亮匹配分组的气泡（复用象限高亮的可靠模式：先 downplay 全部重置，
+    //    再 highlight 匹配的 series，其余气泡借助 series.blur 自动变暗）
+    const seriesArr = (chart.getOption().series as any[]) || []
+    for (let si = 0; si < seriesArr.length; si++) {
+      chart.dispatchAction({ type: 'downplay', seriesIndex: si })
+    }
+    if (q && matches.length > 0) {
+      chart.dispatchAction({ type: 'highlight', seriesName: matches })
+    }
+  }, [legendSearch, data, config.colorGroupType])
+
   // ===== 注册 Graphic 事件监听 =====
   useEffect(() => {
     const chart = chartInstanceRef.current
@@ -2116,6 +2161,22 @@ export const BubbleChart: React.FC<BubbleChartProps> = ({
           zIndex: 10 // 图表层级较高，覆盖 Label
         }}
       />
+
+      {/* ===== 图例搜索框：颜色分组项多时按关键字筛选图例并高亮气泡 ===== */}
+      {/* 仅在开启颜色分组时显示；左上角并右移避开纵轴标题，图例从 left:260 起，避开右端翻页器 */}
+      {config.colorGroupType && (
+        <div style={{ position: 'absolute', top: 8, left: 150, zIndex: 20, width: 100 }}>
+          <Input
+            size="small"
+            // 放大镜仅在为空时作为 placeholder 提示出现；有输入后隐藏以腾出空间
+            prefix={legendSearch ? undefined : <IconSearch />}
+            showClear
+            placeholder={t('legend.search', '搜索分组')}
+            value={legendSearch}
+            onChange={(v) => setLegendSearch(v)}
+          />
+        </div>
+      )}
 
       {/* 移除自定义象限 label 的 JSX 渲染 */}
 

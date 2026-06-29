@@ -100,7 +100,8 @@
         "quadrant": "象限"
     },
     "legend": {
-        "empty": "空"
+        "empty": "空",
+        "search": "搜索分组"
     },
     "message": {
         "completeConfigFirst": "请先完成气泡配置"

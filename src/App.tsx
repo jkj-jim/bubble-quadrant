@@ -1604,8 +1604,8 @@ function App() {
 
           {/* 底部按钮区域：固定在底部 */}
           <div style={{ height: '40px', padding: '15px 20px', borderTop: '1px solid var(--semi-color-border)', background: 'transparent', display: 'flex', alignItems: 'center', gap: '20px' }}>
-            {/* 更多说明链接 */}
-            <a
+            {/* 更多说明链接（暂时隐藏「使用秘籍」按钮） */}
+            {/* <a
               href="https://ai.feishu.cn/wiki/EbYewxi0yiUfd1kV8Jhccsp5nwh"
               target="_blank"
               rel="noopener noreferrer"
@@ -1621,7 +1621,7 @@ function App() {
               onMouseLeave={(e) => e.currentTarget.style.color = 'var(--semi-color-text-2)'}
             >
               使用秘籍
-            </a>
+            </a> */}
             <Button
               type="primary"
               theme="solid"

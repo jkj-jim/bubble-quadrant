@@ -99,7 +99,8 @@
         "quadrant": "Quadrant"
     },
     "legend": {
-        "empty": "Empty"
+        "empty": "Empty",
+        "search": "Search group"
     },
     "message": {
         "completeConfigFirst": "Please request bubble config first"

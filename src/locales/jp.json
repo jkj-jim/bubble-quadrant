@@ -36,6 +36,10 @@
         "noData": "データがありません",
         "noMatch": "一致する結果がありません"
     },
+    "legend": {
+        "empty": "空",
+        "search": "グループを検索"
+    },
     "button": {
         "saveAndView": "保存して表示",
         "enableAxisRange": "範囲を限定",
